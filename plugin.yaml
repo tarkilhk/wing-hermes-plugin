@@ -1,5 +1,5 @@
 name: wing
-version: "0.2.0"
+version: "0.2.1"
 description: Profile-context voice for Wing in subscription and API modes. Hermes owns credentials, agent work and profile configuration.
 license: MIT
 requires_hermes: ">=0.23.0"

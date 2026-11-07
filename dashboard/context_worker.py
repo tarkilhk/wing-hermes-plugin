@@ -3,6 +3,8 @@
 import contextlib
 import json
 import sys
+import traceback
+from pathlib import Path
 
 
 def inspect(cwd):
@@ -25,6 +27,17 @@ if __name__ == "__main__":
     payload = json.load(sys.stdin)
     # Native tools/extensions may print diagnostics. They are never part of the
     # protocol and the parent never returns them in an HTTP error.
-    with contextlib.redirect_stdout(sys.stderr):
-        prompt = inspect(payload["cwd"])
-    json.dump({"system_prompt": prompt}, sys.stdout)
+    try:
+        with contextlib.redirect_stdout(sys.stderr):
+            prompt = inspect(payload["cwd"])
+        result = {"system_prompt": prompt}
+    except Exception as error:
+        frames = traceback.extract_tb(error.__traceback__)
+        result = {
+            "error": {
+                "kind": type(error).__name__,
+                "location": frames[-1].name if frames else "inspect",
+                "module": Path(frames[-1].filename).name if frames else "context_worker.py",
+            }
+        }
+    json.dump(result, sys.stdout)

@@ -5,7 +5,7 @@ voice using the sign-in already owned by the selected Hermes profile. Hermes
 signs the request and manages credential refresh. Wing keeps the microphone,
 speaker and WebRTC connection on the phone.
 
-Version 0.2.0 loads Hermes-built profile context into voice startup. Existing
+Version 0.2.1 loads Hermes-built profile context into voice startup. Existing
 chats use Hermes's cached or saved prompt; new chats use Hermes's native profile
 inspector in a short-lived process. SOUL, built-in memory, skills and workspace
 context remain assembled by Hermes. Deeper memory retrieval and all tool work
@@ -103,7 +103,7 @@ python3 -m venv .venv
 .venv/bin/python scripts/package.py
 ```
 
-The package command creates a deterministic `dist/wing-0.2.0.zip` containing only
+The package command creates a deterministic `dist/wing-0.2.1.zip` containing only
 the installable plugin, documentation and license notices, plus a SHA-256 file.
 CI runs the same checks and builds the archive. The package is not a PyPI wheel.
 CI also checks the real Hermes plugin loader, manifest reader, signed-request

@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import traceback
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -115,7 +116,12 @@ def profile_prompt(body: SessionOffer) -> str:
             timeout=30,
             check=True,
         )
-        prompt = json.loads(result.stdout)["system_prompt"]
+        result = json.loads(result.stdout)
+        if "error" in result:
+            raise HTTPException(
+                424, {"message": "Hermes profile inspection failed.", **result["error"]}
+            )
+        prompt = result["system_prompt"]
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("Hermes returned no profile prompt")
     overlay = resolve_ephemeral_system_prompt(load_config())
@@ -125,8 +131,20 @@ def profile_prompt(body: SessionOffer) -> str:
 def startup_instructions(body, policy):
     try:
         prompt = profile_prompt(body)
-    except Exception:
-        raise HTTPException(424, "Hermes could not prepare this profile's voice context.") from None
+    except HTTPException:
+        raise
+    except Exception as error:
+        # Frame names and error types identify integration failures without
+        # returning native exception messages, prompts, env or credentials.
+        frames = traceback.extract_tb(error.__traceback__)
+        raise HTTPException(
+            424,
+            {
+                "message": "Hermes could not prepare this profile's voice context.",
+                "kind": type(error).__name__,
+                "location": frames[-1].name if frames else "profile_prompt",
+            },
+        ) from None
     # Preserve native prompt bytes; voice policy explains the frontend's execution
     # boundary. Tool instructions refer to Hermes, never to direct model tools.
     return prompt + "\n\nVoice frontend policy:\n" + policy + "\n\n" + DELEGATION_WIRE
