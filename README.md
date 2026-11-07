@@ -1,9 +1,9 @@
 # Wing plugin for Hermes
 
-The `wing` plugin connects Wing's mobile voice session to ChatGPT subscription
-voice using the sign-in already owned by the selected Hermes profile. Hermes
-signs the request and manages credential refresh. Wing keeps the microphone,
-speaker and WebRTC connection on the phone.
+The `wing` plugin connects Wing's mobile voice session to subscription or API
+voice using the selected Hermes profile. Hermes owns sign-in, credential refresh,
+API-key resolution and profile context. Wing keeps the microphone, speaker and
+WebRTC connection on the phone.
 
 Version 0.2.3 loads Hermes-built profile context into voice startup. Existing
 chats use Hermes's cached or saved prompt; new chats use Hermes's native profile
@@ -19,8 +19,9 @@ Captions do not imply a saved conversation turn.
 
 - Current upstream Hermes, at least 0.23.0, with its dashboard/gateway available
   to Wing and the dashboard Python dependencies installed.
-- An OpenAI Codex sign-in in the Hermes profile used by the chat, with access to
-  subscription voice. Installing this plugin does not establish entitlement.
+- For subscription mode, an OpenAI Codex sign-in in the chat's Hermes profile
+  with voice access. For API mode, OpenAI voice API credentials configured in
+  that profile.
 - A Wing build using the `wing` plugin contract. Older development builds using
   `talk-desktop` must be updated together with this plugin.
 
@@ -46,8 +47,9 @@ billing is separate; the plugin never switches modes automatically.
 ## Responsibilities
 
 Hermes supplies both the profile prompt and its normal voice policy. The plugin
-only transports these into startup instructions and specifies delegation to
-Hermes. Recent chat is separate input data. Prompts are not silently truncated.
+transports the profile prompt as a developer `initial_items` message for Codex
+subscription voice, or as session instructions for API voice. It specifies
+delegation to Hermes. Recent chat is separate input data. Prompts are not silently truncated.
 Provider context limits can reject startup.
 
 The fresh-profile inspector uses profile defaults, with a separate temporary
