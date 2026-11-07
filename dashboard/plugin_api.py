@@ -131,7 +131,7 @@ def profile_prompt(body: SessionOffer) -> str:
     return prompt + ("\n\n" + overlay if overlay else "")
 
 
-def startup_instructions(body, policy):
+def startup_context(body):
     try:
         prompt = profile_prompt(body)
     except HTTPException:
@@ -148,9 +148,7 @@ def startup_instructions(body, policy):
                 "location": frames[-1].name if frames else "profile_prompt",
             },
         ) from None
-    # Preserve native prompt bytes; voice policy explains the frontend's execution
-    # boundary. Tool instructions refer to Hermes, never to direct model tools.
-    return prompt + "\n\nVoice frontend policy:\n" + policy + "\n\n" + DELEGATION_WIRE
+    return prompt
 
 
 def api_exchange(body, instructions, history):
@@ -194,14 +192,15 @@ def negotiate(body: SessionOffer):
     try:
         # Built by Hermes in the request's profile scope. This is its native
         # voice policy/config, not a claim to export the agent's full context.
-        policy = startup_instructions(body, instructions())
+        prompt = startup_context(body)
+        policy = instructions() + "\n\n" + DELEGATION_WIRE
         history = (
             [{"role": "user", "content": [{"type": "input_text", "text": body.history}]}]
             if body.history
             else []
         )
         if body.mode == "api":
-            return connection_result(body, api_exchange(body, policy, history))
+            return connection_result(body, api_exchange(body, prompt + "\n\n" + policy, history))
         response = provider.credentialed_provider_request(
             "openai-codex",
             "POST",
@@ -211,7 +210,16 @@ def negotiate(body: SessionOffer):
                 "session": {
                     "model": MODEL,
                     "instructions": policy,
-                    **({"input": history} if history else {}),
+                    # Codex subscription uses initial_items, not the API's
+                    # input field. Preserve the Hermes prompt as developer data.
+                    "initial_items": [
+                        {
+                            "type": "message",
+                            "role": "developer",
+                            "content": [{"type": "input_text", "text": prompt}],
+                        },
+                        *[{"type": "message", **item} for item in history],
+                    ],
                     "audio": {"output": {"voice": body.voice}},
                     "delegation": {"type": "client"},
                 },

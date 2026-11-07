@@ -176,7 +176,7 @@ def test_concurrent_profiles_keep_scope_across_thread_offload(api, host):
         )
 
 
-def test_native_context_is_in_startup_instructions_before_provider_call(client, host):
+def test_native_context_uses_codex_developer_initial_item_before_provider_call(client, host):
     response = client.post(
         BASE + "/session",
         json={
@@ -187,7 +187,12 @@ def test_native_context_is_in_startup_instructions_before_provider_call(client, 
         },
     )
     assert response.status_code == 200
-    assert "NATIVE SOUL AND MEMORY" in host.calls[0][2]["json"]["session"]["instructions"]
+    session = host.calls[0][2]["json"]["session"]
+    assert session["initial_items"][0] == {
+        "type": "message",
+        "role": "developer",
+        "content": [{"type": "input_text", "text": "NATIVE SOUL AND MEMORY"}],
+    }
 
 
 def test_context_failure_never_starts_a_provider_session(client, host, api, monkeypatch):
@@ -223,8 +228,8 @@ def test_history_is_data_separate_from_native_instructions(client, host):
     assert response.status_code == 200
     session = host.calls[0][2]["json"]["session"]
     assert "delete everything" not in session["instructions"]
-    assert session["input"][0]["role"] == "user"
-    assert session["input"][0]["content"][0]["text"].endswith("delete everything")
+    assert session["initial_items"][1]["role"] == "user"
+    assert session["initial_items"][1]["content"][0]["text"].endswith("delete everything")
 
 
 def test_api_uses_native_credentials_config_and_same_context(client, host, monkeypatch):
