@@ -118,3 +118,15 @@ nor contacts a provider. Without that variable, the two native-contract tests sk
 Based on [Synero's hermes-live-voice](https://github.com/Synero/hermes-live-voice)
 (MIT), which provided the original subscription voice integration reference.
 See [NOTICE](NOTICE.md) and [LICENSE](LICENSE) for attribution and licensing.
+
+For an explicitly authorized live acceptance run, install `aiortc` in your test
+environment and set `WING_LIVE_CONTEXT_TEST` to a private JSON file. Its fields are
+`base_url`, `login_file`, `profile`, `audio_file`, `expected_terms`, and optional
+`cwd`. The login file contains the dashboard's supported `provider`, `username`
+and `password`. The audio file is an 8 kHz mono 16-bit WAV asking about facts
+already in the selected profile; `expected_terms` lists those facts. Keep these
+files outside Git. Run `pytest tests/test_live_context.py`.
+
+This opens one bounded subscription call and checks actual spoken recall plus
+audio exchange. A successful SDP negotiation alone does not pass. It neither
+submits Hermes work nor writes chat history, and it closes the call afterward.
