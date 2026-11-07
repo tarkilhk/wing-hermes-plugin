@@ -5,12 +5,15 @@ voice using the sign-in already owned by the selected Hermes profile. Hermes
 signs the request and manages credential refresh. Wing keeps the microphone,
 speaker and WebRTC connection on the phone.
 
-**Version 0.1.1 is a subscription transport bridge.** Full Hermes-built profile
-context at voice startup and saving the complete spoken exchange into shared
-history are not implemented. They depend on native Hermes capabilities, including
+Version 0.2.0 loads Hermes-built profile context into voice startup. Existing
+chats use Hermes's cached or saved prompt; new chats use Hermes's native profile
+inspector in a short-lived process. SOUL, built-in memory, skills and workspace
+context remain assembled by Hermes. Deeper memory retrieval and all tool work
+are delegated into the selected Hermes chat.
+
+Saving the complete spoken exchange into shared history still awaits native
 [external-turn recording #121045](https://github.com/NousResearch/hermes-agent/issues/121045).
-The plugin advertises both capabilities as false. Delegated tasks still use the
-normal Hermes conversation through Wing.
+Captions do not imply a saved conversation turn.
 
 ## Requirements and installation
 
@@ -28,24 +31,30 @@ hermes plugins install https://github.com/tarkilhk/wing-hermes-plugin
 hermes plugins enable wing
 ```
 
-Enable it in every profile where you use subscription voice. For a named profile,
+Enable it in every profile where you use live voice. For a named profile,
 use Hermes's profile selector, for example `hermes --profile work plugins enable wing`.
 Install/serve it through the profile's supported plugin setup; enablement in the
 default profile alone does not enable another profile. Sign-in is managed through
 Hermes's provider settings. Restart the serving Hermes process if required by
 your installation's plugin-loading workflow.
 
-In Wing, select **ChatGPT subscription** for live voice and start from the chat
-you want to use. Selecting **OpenAI API** instead uses Hermes's stock
-`/api/audio/voice-live/*` routes and does not require this plugin. API billing is
-separate; the plugin never switches between these modes.
+In Wing, select **ChatGPT subscription** or **OpenAI API** for live voice. Both
+use the Wing plugin so the native profile prompt is available before speech.
+API mode uses Hermes's existing voice configuration and API-key resolver. API
+billing is separate; the plugin never switches modes automatically.
 
 ## Responsibilities
 
-Hermes supplies the voice instructions from its normal `tools.voice_live`
-configuration. The plugin adds only subscription delegation formatting and the
-rule that interrupting speech does not stop agent work. These voice instructions
-are not the full profile/session context promised by the pending integration.
+Hermes supplies both the profile prompt and its normal voice policy. The plugin
+only transports these into startup instructions and specifies delegation to
+Hermes. Recent chat is separate input data. Prompts are not silently truncated.
+Provider context limits can reject startup.
+
+The fresh-profile inspector uses profile defaults, with a separate temporary
+session identity. It initializes configured memory extensions; it does not run a
+model turn or save chat messages. Session-specific overrides and query-time memory
+prefetch are not reproduced. Ask Hermes through delegation when deeper or current
+memory is required. Existing snapshots may reflect an earlier turn's settings.
 
 Tasks, tools, memory retrieval, approvals and history remain Hermes-owned. The
 plugin does not read SOUL or memory files, implement tool execution, start a Codex
@@ -60,11 +69,11 @@ request body.
 
 | Request | Meaning |
 | --- | --- |
-| `GET /api/plugins/wing/voice/v1/status?profile=work` | Transport availability, supported voices and integration capabilities; no provider call |
-| `POST /api/plugins/wing/voice/v1/session?profile=work` | Body `{"offer":"<SDP>","voice":"cove"}`; exchanges SDP once using Hermes's signed-in provider API |
+| `GET /api/plugins/wing/voice/v2/status?profile=work&mode=subscription` | Transport availability, supported voices and integration capabilities; no provider call |
+| `POST /api/plugins/wing/voice/v2/session?profile=work` | Body `{"offer":"<SDP>","mode":"subscription","system_prompt":null,"cwd":"/workspace","history":"quoted recent chat","voice":"cove"}`; exchanges SDP once using Hermes's signed-in provider API |
 
-Successful negotiation returns `ok`, `contractVersion: 1`, `answer` (SDP),
-`mode: subscription`, `protocol: codex-live-v3`, `handoff: client`, model and voice.
+Successful negotiation returns `ok`, `contractVersion: 2`, `answer` (SDP),
+the selected mode and protocol (`codex-live-v3` or `openai-live`), `handoff: client`, model and voice.
 Errors preserve authorization/rate-limit status without exposing provider bodies.
 A status success does not prove sign-in or account voice access. No provider
 request is retried automatically. Route/version changes are clean changes; the
@@ -72,15 +81,15 @@ old `talk-desktop` endpoints are not aliases.
 
 ## Data and trust
 
-The plugin sends SDP, Hermes's configured voice instructions and transport
-metadata to ChatGPT's Codex voice endpoint. Hermes attaches the credential;
+The plugin sends SDP, the native profile prompt, recent chat and voice policy to
+the selected provider endpoint. Profile context can include saved personal memory. Hermes attaches the credential;
 plugin responses contain no credential or account headers. Audio travels over
 Wing's negotiated WebRTC connection. This plugin stores no audio, transcripts,
 credentials or usage records. It must run inside the authenticated Hermes host,
 not as a separately exposed unauthenticated FastAPI service.
 
 Subscription negotiation uses a provider-specific contract that can change.
-API mode uses the stock Hermes integration. Tests with mocked network responses
+API mode reuses native Hermes configuration and credential resolution. Tests with mocked network responses
 do not establish subscription access or audible quality on a phone.
 
 ## Development and release
@@ -94,7 +103,7 @@ python3 -m venv .venv
 .venv/bin/python scripts/package.py
 ```
 
-The package command creates a deterministic `dist/wing-0.1.1.zip` containing only
+The package command creates a deterministic `dist/wing-0.2.0.zip` containing only
 the installable plugin, documentation and license notices, plus a SHA-256 file.
 CI runs the same checks and builds the archive. The package is not a PyPI wheel.
 CI also checks the real Hermes plugin loader, manifest reader, signed-request

@@ -71,6 +71,11 @@ def host(api, monkeypatch):
         "host_services",
         lambda: (provider, lambda: "Hermes native voice instructions for " + PROFILE.get()),
     )
+    monkeypatch.setattr(
+        api,
+        "profile_prompt",
+        lambda body: body.system_prompt or "Native inspected profile: " + PROFILE.get(),
+    )
     return state
 
 

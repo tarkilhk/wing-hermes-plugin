@@ -1,6 +1,6 @@
 name: wing
-version: "0.1.1"
-description: Subscription voice transport for Wing. Hermes owns credentials, agent work and profile configuration.
+version: "0.2.0"
+description: Profile-context voice for Wing in subscription and API modes. Hermes owns credentials, agent work and profile configuration.
 license: MIT
 requires_hermes: ">=0.23.0"
 requires_auth:

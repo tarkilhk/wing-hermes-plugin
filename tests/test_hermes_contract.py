@@ -61,6 +61,9 @@ def installed_plugin(tmp_path, monkeypatch):
         "Client",
         lambda **kwargs: real_client(transport=httpx.MockTransport(receive), **kwargs),
     )
+    personality = ModuleType("hermes_cli.personality")
+    personality.resolve_ephemeral_system_prompt = lambda _: ""
+    monkeypatch.setitem(sys.modules, personality.__name__, personality)
     api = import_user_code(installed / "dashboard/plugin_api.py", "wing_native_contract")
     assert api is not None
     yield api, installed, sent, voice_live
@@ -71,7 +74,16 @@ def test_installed_plugin_uses_native_signer_and_voice_policy(installed_plugin):
     api, _, sent, voice_live = installed_plugin
     token = PROFILE.set("alice")
     try:
-        result = asyncio.run(api.session(api.SessionOffer(offer=SDP)))
+        result = asyncio.run(
+            api.session(
+                api.SessionOffer(
+                    offer=SDP,
+                    mode="subscription",
+                    system_prompt="Native saved context",
+                    cwd="/workspace",
+                )
+            )
+        )
     finally:
         PROFILE.reset(token)
     assert result["answer"] == SDP
@@ -80,7 +92,7 @@ def test_installed_plugin_uses_native_signer_and_voice_policy(installed_plugin):
     assert str(request.url) == api.ENDPOINT
     assert request.headers["authorization"] == "Bearer synthetic-test-token"
     instructions = json.loads(request.content)["session"]["instructions"]
-    assert instructions.startswith(voice_live.LIVE_PERSONA + "\n\nNative profile policy: alice")
+    assert voice_live.LIVE_PERSONA + "\n\nNative profile policy: alice" in instructions
     assert "synthetic-test-token" not in json.dumps(result)
 
 
@@ -88,6 +100,15 @@ def test_native_host_refuses_undeclared_sign_in(installed_plugin):
     api, installed, sent, _ = installed_plugin
     (installed / "plugin.yaml").write_text("name: wing\nversion: '0.1.0'\n")
     with pytest.raises(api.HTTPException) as error:
-        asyncio.run(api.session(api.SessionOffer(offer=SDP)))
+        asyncio.run(
+            api.session(
+                api.SessionOffer(
+                    offer=SDP,
+                    mode="subscription",
+                    system_prompt="Native saved context",
+                    cwd="/workspace",
+                )
+            )
+        )
     assert error.value.status_code == 502
     assert sent == []

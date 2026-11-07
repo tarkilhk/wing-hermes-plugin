@@ -14,6 +14,7 @@ FILES = (
     "__init__.py",
     "dashboard/manifest.json",
     "dashboard/plugin_api.py",
+    "dashboard/context_worker.py",
     "README.md",
     "LICENSE",
     "NOTICE.md",
