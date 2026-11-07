@@ -1,0 +1,35 @@
+name: Check and package
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: NousResearch/hermes-agent
+          ref: 981791d9d41fd2efde27f563873ce8c48ef1dac6
+          path: .hermes-source
+          persist-credentials: false
+      - run: python3 -m venv .venv
+      - run: .venv/bin/python -m pip install -r requirements-dev.txt
+      - run: .venv/bin/python -m ruff check dashboard tests scripts __init__.py
+      - run: .venv/bin/python -m ruff format --check dashboard tests scripts __init__.py
+      - run: .venv/bin/python -m pytest
+        env:
+          HERMES_SOURCE_ROOT: ${{ github.workspace }}/.hermes-source
+      - run: .venv/bin/python scripts/package.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wing-plugin
+          path: dist/

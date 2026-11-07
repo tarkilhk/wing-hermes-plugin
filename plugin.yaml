@@ -1,0 +1,7 @@
+name: wing
+version: "0.1.0"
+description: Subscription voice transport for Wing. Hermes owns credentials, agent work and profile configuration.
+license: MIT
+requires_hermes: ">=0.23.0"
+requires_auth:
+  - openai-codex
