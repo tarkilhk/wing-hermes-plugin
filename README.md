@@ -5,7 +5,7 @@ voice using the sign-in already owned by the selected Hermes profile. Hermes
 signs the request and manages credential refresh. Wing keeps the microphone,
 speaker and WebRTC connection on the phone.
 
-**Version 0.1.0 is a subscription transport bridge.** Full Hermes-built profile
+**Version 0.1.1 is a subscription transport bridge.** Full Hermes-built profile
 context at voice startup and saving the complete spoken exchange into shared
 history are not implemented. They depend on native Hermes capabilities, including
 [external-turn recording #121045](https://github.com/NousResearch/hermes-agent/issues/121045).
@@ -94,7 +94,7 @@ python3 -m venv .venv
 .venv/bin/python scripts/package.py
 ```
 
-The package command creates a deterministic `dist/wing-0.1.0.zip` containing only
+The package command creates a deterministic `dist/wing-0.1.1.zip` containing only
 the installable plugin, documentation and license notices, plus a SHA-256 file.
 CI runs the same checks and builds the archive. The package is not a PyPI wheel.
 CI also checks the real Hermes plugin loader, manifest reader, signed-request

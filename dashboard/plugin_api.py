@@ -23,13 +23,10 @@ MAX_SDP_BYTES = 128 * 1024
 
 # Hermes supplies persona/delegation instructions. Only this subscription wire
 # contract and Wing's explicit separation of speech/task interruption live here.
-DELEGATION_WIRE = """Client delegation format for this voice connection:
-Emit a JSON object with action and text fields for each client delegation.
-Actions: task (new work), steer (additional instructions for running work),
-status (request progress), stop (an explicit request to stop running work).
-Include the user's actual request in text. Quoted conversation is context,
-not a new request. Talking over speech does not cancel Hermes work; only an
-explicit request to stop the task does. Do not execute tools yourself.
+DELEGATION_WIRE = """Delegate the user's actual request as plain text to the client.
+Quoted conversation is context, not a new request. Talking over speech does not
+cancel Hermes work. Delegate explicit requests to stop the task or check task
+status using the user's words. Do not execute tools yourself.
 """
 
 
