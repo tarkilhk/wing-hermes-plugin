@@ -106,7 +106,10 @@ def profile_prompt(body: SessionOffer) -> str:
 
         env = served_profile_child_env(target_home=get_hermes_home(), inherit_credentials=True)
         root = str(Path(hermes_cli.__file__).resolve().parent.parent)
-        env["PYTHONPATH"] = os.pathsep.join(filter(None, [root, env.get("PYTHONPATH", "")]))
+        # This child runs Hermes itself, not a user terminal command. Preserve
+        # managed-runtime dependency paths that the terminal env helper scrubs.
+        paths = [root, *(p for p in sys.path if p and Path(p).is_absolute())]
+        env["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(paths))
         result = subprocess.run(
             [sys.executable, str(Path(__file__).with_name("context_worker.py"))],
             input=json.dumps({"cwd": body.cwd}),
