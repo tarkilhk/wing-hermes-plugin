@@ -192,8 +192,14 @@ maintainer follow-up; CI does not reopen it.
 Unattended catalog submissions require the repository Actions secret
 `CATALOG_TOKEN`: a dedicated GitHub token allowed to write the owner's public fork
 and open pull requests upstream. For a personal account contributing to an
-unaffiliated public repository, GitHub currently requires a classic PAT with
-`public_repo` scope. Set it through GitHub's Actions secrets UI or
+unaffiliated public repository, use a classic PAT with `public_repo` and `workflow`
+scopes. `public_repo` authorizes the public-fork changes and upstream PR. This
+workflow creates its submission branch from current Hermes main; when that commit
+introduces GitHub Actions files absent from the fork, GitHub also requires the
+`workflow` scope to create the reference. This is permission for the fork branch,
+not for publishing Wing releases; releases use the repository's built-in token.
+Private-repository access (`repo`) is not requested. Set the token through GitHub's
+Actions secrets UI or
 `gh secret set CATALOG_TOKEN --repo tarkilhk/wing-hermes-plugin`; never commit it.
 Without it, release publication still works and CI reports the missing catalog
 credential. After adding it, re-run the workflow to submit the published version.
