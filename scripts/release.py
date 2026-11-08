@@ -16,7 +16,10 @@ def publish(github, sha, root=ROOT, upload=None):
     tag = f"v{entry['version']}"
     path = f"repos/{PLUGIN_REPO}"
     release = github.request("GET", f"{path}/releases/tags/{tag}", missing=True)
-    ref = github.request("GET", f"{path}/commits/{tag}", missing=True)
+    # Missing commits return 422; the tag-ref endpoint has a real 404 contract.
+    # Resolve an existing ref separately so annotated tags still pin the commit.
+    tag_ref = github.request("GET", f"{path}/git/ref/tags/{tag}", missing=True)
+    ref = github.request("GET", f"{path}/commits/{tag}") if tag_ref else None
     if release and release["draft"] and release["target_commitish"] != sha:
         raise RuntimeError("Draft release belongs to another source commit; bump the version")
     if release and not release["draft"] and ref is None:

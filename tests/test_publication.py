@@ -1,5 +1,6 @@
 import base64
 import importlib
+import json
 import shutil
 from types import SimpleNamespace
 
@@ -73,7 +74,11 @@ def test_publish_uploads_before_exposing_release_and_keeps_source_identity(publi
 def test_same_version_push_keeps_published_tag_and_does_not_upload(publication):
     repo = f"repos/{publication.catalog.PLUGIN_REPO}"
     github = FakeGitHub(
-        {f"{repo}/releases/tags/v0.3.0": {"draft": False}, f"{repo}/commits/v0.3.0": {"sha": OLD}}
+        {
+            f"{repo}/releases/tags/v0.3.0": {"draft": False},
+            f"{repo}/git/ref/tags/v0.3.0": {"object": {"type": "tag", "sha": "c" * 40}},
+            f"{repo}/commits/v0.3.0": {"sha": OLD},
+        }
     )
     assert (
         publication.release.publish(
@@ -152,3 +157,39 @@ def test_closed_unmerged_submission_is_not_reopened(publication):
     with pytest.raises(RuntimeError, match="closed"):
         publication.catalog.submit(publication.entry, github)
     assert len(github.calls) == 1
+
+
+def test_absent_tag_uses_404_ref_contract_without_requesting_missing_commit(
+    publication, monkeypatch
+):
+    paths = []
+
+    def run(command, **_):
+        method, path = command[3:5]
+        paths.append(path)
+        if method == "GET" and path.endswith(("/releases/tags/v0.3.0", "/git/ref/tags/v0.3.0")):
+            return SimpleNamespace(returncode=1, stdout="", stderr="gh: Not Found (HTTP 404)")
+        if "/commits/" in path:
+            pytest.fail("Missing tag must not use the commits endpoint, which returns HTTP 422")
+        return SimpleNamespace(returncode=0, stdout=json.dumps({"id": 7}), stderr="")
+
+    monkeypatch.setattr(publication.catalog.subprocess, "run", run)
+    assert (
+        publication.release.publish(
+            publication.catalog.GitHub(), SHA, publication.root, lambda *_: None
+        )
+        == SHA
+    )
+    assert any("/git/ref/tags/" in path for path in paths)
+
+
+def test_missing_lookup_does_not_hide_other_422_failures(publication, monkeypatch):
+    monkeypatch.setattr(
+        publication.catalog.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=1, stdout="", stderr="gh: Validation Failed (HTTP 422)"
+        ),
+    )
+    with pytest.raises(RuntimeError, match="HTTP 422"):
+        publication.catalog.GitHub().request("GET", "repos/example/ref", missing=True)
