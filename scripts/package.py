@@ -17,6 +17,9 @@ FILES = (
     "dashboard/plugin_api.py",
     "dashboard/context_worker.py",
     "README.md",
+    "docs/PLUGIN_REFERENCE.md",
+    "docs/DEVELOPMENT.md",
+    "docs/email-draft-preview.png",
     "LICENSE",
     "NOTICE.md",
 )

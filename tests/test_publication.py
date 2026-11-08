@@ -41,6 +41,12 @@ def publication(tmp_path, monkeypatch):
         target = tmp_path / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / relative, target)
+    # Exercise publication behavior at a fixed fixture version, independently
+    # of the next real release's version.
+    manifest_path = tmp_path / "plugin.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text())
+    manifest["version"] = "0.3.0"
+    manifest_path.write_text(yaml.safe_dump(manifest))
     return SimpleNamespace(
         catalog=catalog, release=release, root=tmp_path, entry=catalog.render(SHA, tmp_path)
     )
