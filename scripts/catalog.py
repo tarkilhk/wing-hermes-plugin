@@ -47,7 +47,7 @@ def error_details(output):
                 safe_errors.append(
                     {
                         key: cleaned
-                        for key in ("resource", "field", "code", "message")
+                        for key in ("resource", "field", "code", "type", "message")
                         if (cleaned := clean(error.get(key))) is not None
                     }
                 )
@@ -77,7 +77,10 @@ class GitHub:
             reason = status.group() if status else f"gh exit {result.returncode}"
             details = error_details(result.stdout)
             raise RuntimeError(f"GitHub {method} {path} failed ({reason}): {details}")
-        return json.loads(result.stdout) if result.stdout.strip() else None
+        response = json.loads(result.stdout) if result.stdout.strip() else None
+        if path == "graphql" and response and response.get("errors"):
+            raise RuntimeError(f"GitHub GraphQL failed: {error_details(result.stdout)}")
+        return response
 
 
 def render(sha, root):
@@ -202,18 +205,29 @@ def submit(entry, github):
         if existing:
             body["sha"] = existing["sha"]
         github.request("PUT", f"repos/{FORK}/contents/{path}", body)
-    pr = github.request(
+    # Identify both repositories explicitly for the cross-fork mutation.
+    upstream = github.request("GET", f"repos/{UPSTREAM}")
+    fork = github.request("GET", f"repos/{FORK}")
+    result = github.request(
         "POST",
-        f"repos/{UPSTREAM}/pulls",
+        "graphql",
         {
-            "title": f"plugin-catalog: Wing {entry['version']} Android companion",
-            "head": f"{owner}:{branch}",
-            "base": "main",
-            "body": description(entry),
-            "maintainer_can_modify": True,
+            "query": "mutation($input: CreatePullRequestInput!) { "
+            "createPullRequest(input: $input) { pullRequest { url } } }",
+            "variables": {
+                "input": {
+                    "repositoryId": upstream["node_id"],
+                    "headRepositoryId": fork["node_id"],
+                    "title": f"plugin-catalog: Wing {entry['version']} Android companion",
+                    "headRefName": f"{owner}:{branch}",
+                    "baseRefName": "main",
+                    "body": description(entry),
+                    "maintainerCanModify": True,
+                }
+            },
         },
     )
-    return pr["html_url"]
+    return result["data"]["createPullRequest"]["pullRequest"]["url"]
 
 
 def main(argv=None):

@@ -25,8 +25,16 @@ class FakeGitHub:
             if missing:
                 return None
             raise AssertionError(f"Unexpected read: {path}")
-        if path.endswith("/pulls"):
-            return {"html_url": "https://github.com/NousResearch/hermes-agent/pull/fixture"}
+        if path == "graphql":
+            return {
+                "data": {
+                    "createPullRequest": {
+                        "pullRequest": {
+                            "url": "https://github.com/NousResearch/hermes-agent/pull/fixture"
+                        }
+                    }
+                }
+            }
         if path.endswith("/releases"):
             return {"id": 7}
         return {}
@@ -121,7 +129,12 @@ def test_submission_creates_only_version_branch_entry_and_one_pr(publication):
     catalog = publication.catalog
     query = "repos/NousResearch/hermes-agent/pulls?state=all&head=tarkilhk%3Awing-plugin-v0.3.0&base=main"
     github = FakeGitHub(
-        {query: [], f"repos/{catalog.UPSTREAM}/git/ref/heads/main": {"object": {"sha": OLD}}}
+        {
+            query: [],
+            f"repos/{catalog.UPSTREAM}/git/ref/heads/main": {"object": {"sha": OLD}},
+            f"repos/{catalog.UPSTREAM}": {"node_id": "upstream-node"},
+            f"repos/{catalog.FORK}": {"node_id": "fork-node"},
+        }
     )
     assert catalog.submit(publication.entry, github).endswith("/pull/fixture")
     mutations = [(method, path, body) for method, path, body in github.calls if method != "GET"]
@@ -129,7 +142,14 @@ def test_submission_creates_only_version_branch_entry_and_one_pr(publication):
     assert mutations[0][2] == {"ref": "refs/heads/wing-plugin-v0.3.0", "sha": OLD}
     assert mutations[1][1].endswith("/contents/plugin-catalog/wing.yaml")
     assert yaml.safe_load(base64.b64decode(mutations[1][2]["content"])) == publication.entry
-    assert mutations[2][2]["head"] == "tarkilhk:wing-plugin-v0.3.0"
+    assert mutations[2][1] == "graphql"
+    request = mutations[2][2]["variables"]["input"]
+    assert request["repositoryId"] == "upstream-node"
+    assert request["headRepositoryId"] == "fork-node"
+    assert request["headRefName"] == "tarkilhk:wing-plugin-v0.3.0"
+    assert request["baseRefName"] == "main"
+    assert request["maintainerCanModify"] is True
+    assert SHA in request["body"]
 
 
 @pytest.mark.parametrize("merged", [False, True])
@@ -270,3 +290,22 @@ def test_github_failure_reports_only_bounded_error_fields(publication, monkeypat
 @pytest.mark.parametrize("output", ["<html>private</html>", "[]", "null"])
 def test_github_error_details_ignore_non_error_json(publication, output):
     assert publication.catalog.error_details(output) == ""
+
+
+def test_graphql_errors_fail_even_with_success_http_status(publication, monkeypatch):
+    monkeypatch.setattr(
+        publication.catalog.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "data": {"createPullRequest": None},
+                    "errors": [{"type": "FORBIDDEN", "message": "Creation is restricted"}],
+                }
+            ),
+            stderr="",
+        ),
+    )
+    with pytest.raises(RuntimeError, match="Creation is restricted"):
+        publication.catalog.GitHub().request("POST", "graphql", {"query": "mutation {}"})
