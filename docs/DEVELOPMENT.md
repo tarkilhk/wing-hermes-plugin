@@ -28,14 +28,19 @@ nor contacts a provider. Without that variable, the native-contract tests skip.
 
 For an explicitly authorized live acceptance run, install `aiortc` in your test
 environment and set `WING_LIVE_CONTEXT_TEST` to a private JSON file. Its fields are
-`base_url`, `login_file`, `profile`, `audio_file`, `expected_terms`, and optional
-`cwd`. The login file contains the dashboard's supported `provider`, `username`
+`base_url`, `login_file`, `profile`, `audio_file`, `expected_identity`,
+`expected_terms`, `calls` (1–5), and optional `cwd`. The login file contains the dashboard's supported `provider`, `username`
 and `password`. The audio file is an 8 kHz mono 16-bit WAV asking about facts
-already in the selected profile; `expected_terms` lists those facts. Keep these
+already in the selected profile, without naming the assistant or prompting it
+to consult its context. `expected_identity` is the profile’s voice name and
+`expected_terms` lists user facts. Keep these
 files outside Git. Run `pytest tests/test_live_context.py`.
 
-This opens one bounded subscription call and checks actual spoken recall plus
-audio exchange. A successful SDP negotiation alone does not pass. It neither
+Each configured call starts a fresh subscription session. Acceptance requires
+self-identification in the first spoken reply, recall of the expected user
+facts, and audio exchange. The question must not supply the expected name. Use
+three calls when checking identity changes; one successful answer can hide
+intermittent identity failures. A successful SDP negotiation alone does not pass. It neither
 submits Hermes work nor writes chat history, and it closes the call afterward.
 
 ## Publication and updates

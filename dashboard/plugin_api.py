@@ -49,6 +49,12 @@ status using the user's words. Do not execute tools yourself.
 """
 
 
+# Bind the live speaker to Hermes-owned identity/memory without parsing names or
+# inventing a second persona. Sent in startup context before audio can begin.
+VOICE_HANDOFF = """Voice handoff from Hermes:
+You are the live speaking voice of the Hermes assistant whose native profile context appears above. Continue that assistant's identity and relationship with the user from your first reply. The profile and memory define your name, persona, and known facts about the user. When they record a name for the Hermes voice, that is your own name in this conversation; use it when asked who you are. ChatGPT and GPT-Live name the underlying service, not this profile's conversational identity. Answer questions about yourself and the user directly from the supplied facts, without waiting for a correction or asking the user to repeat them. Do not invent missing facts. Keep tool execution and work with Hermes through the existing delegation policy."""
+
+
 def valid_sdp(value: str) -> bool:
     lines = value.splitlines()
     return (
@@ -165,7 +171,7 @@ def startup_context(body):
                 "location": frames[-1].name if frames else "profile_prompt",
             },
         ) from None
-    return prompt
+    return prompt + "\n\n" + VOICE_HANDOFF
 
 
 def api_exchange(body, instructions, history):
