@@ -49,9 +49,13 @@ Bump plugin.yaml for the next release. A same-version main push does not repin i
 The catalog job opens a version-specific PR from `tarkilhk/hermes-agent` to
 `NousResearch/hermes-agent`. Hermes maintainers review each pin; publishing on
 GitHub does not wait for their review. The same submission command is available
-locally: `python scripts/catalog.py submit --sha <release-commit>`, from that
-release's checkout with GitHub CLI authenticated. A closed submission requires
-maintainer follow-up; CI does not reopen it.
+locally: `python scripts/catalog.py submit --source <release-checkout> --sha <release-commit>`,
+with GitHub CLI authenticated. Run the tooling from current main and provide a
+separate checkout at the published release commit. The source path is required;
+its manifest, catalog metadata and Git HEAD determine the submitted version and
+pin. CI uses the same two checkouts, so submission tooling can be repaired without
+changing a published plugin release. A closed submission requires maintainer
+follow-up; CI does not reopen it.
 
 Unattended catalog submissions require the repository Actions secret
 `CATALOG_TOKEN`: a dedicated GitHub token allowed to write the owner's public fork

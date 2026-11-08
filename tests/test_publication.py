@@ -199,3 +199,74 @@ def test_missing_lookup_does_not_hide_other_422_failures(publication, monkeypatc
     )
     with pytest.raises(RuntimeError, match="HTTP 422"):
         publication.catalog.GitHub().request("GET", "repos/example/ref", missing=True)
+
+
+def test_catalog_cli_uses_explicit_release_source(publication, monkeypatch, capsys):
+    def head(command, *, cwd, text):
+        assert command == ["git", "rev-parse", "HEAD"]
+        assert cwd == publication.root
+        return SHA + "\n"
+
+    def submit(entry, github):
+        assert entry == publication.entry
+        return "https://github.com/pr/fixture"
+
+    monkeypatch.setattr(publication.catalog.subprocess, "check_output", head)
+    monkeypatch.setattr(publication.catalog, "submit", submit)
+    publication.catalog.main(["submit", "--source", str(publication.root), "--sha", SHA])
+    assert capsys.readouterr().out.strip() == "https://github.com/pr/fixture"
+
+
+def test_catalog_cli_rejects_wrong_release_head_before_submission(publication, monkeypatch):
+    monkeypatch.setattr(publication.catalog.subprocess, "check_output", lambda *a, **k: OLD)
+    monkeypatch.setattr(publication.catalog, "submit", lambda *a: pytest.fail("must not submit"))
+    with pytest.raises(ValueError, match="exact release source"):
+        publication.catalog.main(["submit", "--source", str(publication.root), "--sha", SHA])
+
+
+def test_catalog_cli_requires_source_and_renders_that_source(publication, capsys):
+    with pytest.raises(SystemExit) as result:
+        publication.catalog.main(["render", "--sha", SHA])
+    assert result.value.code == 2
+    publication.catalog.main(["render", "--source", str(publication.root), "--sha", SHA])
+    assert yaml.safe_load(capsys.readouterr().out) == publication.entry
+
+
+def test_github_failure_reports_only_bounded_error_fields(publication, monkeypatch):
+    secret = "test-token-not-for-output"
+    monkeypatch.setenv("GH_TOKEN", secret)
+    response = {
+        "message": "Cannot create pull request " + secret,
+        "errors": [
+            {
+                "resource": "PullRequest",
+                "field": "head",
+                "code": "custom",
+                "message": "x" * 1000,
+                "value": "private submitted value",
+            }
+        ]
+        * 10,
+        "token": "private response token",
+        "body": "private response body",
+        "user": {"email": "private email"},
+    }
+    monkeypatch.setattr(
+        publication.catalog.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=1, stdout=json.dumps(response), stderr="gh: Not Found (HTTP 404)"
+        ),
+    )
+    with pytest.raises(RuntimeError) as result:
+        publication.catalog.GitHub().request("POST", "repos/example/pulls", {"body": "private"})
+    message = str(result.value)
+    assert "HTTP 404" in message and "Cannot create pull request [redacted]" in message
+    assert "private" not in message and secret not in message
+    assert "x" * 513 not in message
+    assert message.count('"resource": "PullRequest"') == 5
+
+
+@pytest.mark.parametrize("output", ["<html>private</html>", "[]", "null"])
+def test_github_error_details_ignore_non_error_json(publication, output):
+    assert publication.catalog.error_details(output) == ""
