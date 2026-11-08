@@ -80,13 +80,17 @@ jobs:
           persist-credentials: false
       - run: python3 -m pip install PyYAML==6.0.3
       - name: Submit reviewed catalog pin
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.CATALOG_TOKEN }}
           RELEASE_SHA: ${{ needs.release.outputs.sha }}
         run: |
+          set -euo pipefail
           if [ -z "$GH_TOKEN" ]; then
             echo '::warning::CATALOG_TOKEN is not configured. GitHub release is published; automatic upstream PR submission needs this separate credential.'
             echo 'Catalog submission needs the CATALOG_TOKEN Actions secret. The exact entry is attached to the release; the initial PR can be submitted with the local catalog command.' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          gh api user --jq .login
+          gh api repos/tarkilhk/hermes-agent --jq '{full_name, permissions}'
           python3 scripts/catalog.py submit --sha "$RELEASE_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
