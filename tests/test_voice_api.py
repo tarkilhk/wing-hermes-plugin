@@ -284,5 +284,5 @@ def test_voice_handoff_preserves_native_context_and_binds_profile_identity(clien
     context = session["initial_items"][0]["content"][0]["text"]
     assert context.startswith(native + "\n\nVoice handoff from Hermes:")
     assert "from your first reply" in context
-    assert "that is your own name in this conversation" in context
+    assert "use that name when introducing yourself" in context
     assert "Ari" not in context and "Robert" not in context
