@@ -10,6 +10,7 @@ from conftest import ROOT
 
 SHA = "a" * 40
 OLD = "b" * 40
+SEARCH = "search/issues?q=repo%3ANousResearch%2Fhermes-agent+author%3Atarkilhk+is%3Apr&per_page=100&page=1"
 
 
 class FakeGitHub:
@@ -127,10 +128,9 @@ def test_upload_failure_keeps_release_unpublished(publication):
 
 def test_submission_creates_only_version_branch_entry_and_one_pr(publication):
     catalog = publication.catalog
-    query = "repos/NousResearch/hermes-agent/pulls?state=all&head=tarkilhk%3Awing-plugin-v0.3.0&base=main"
     github = FakeGitHub(
         {
-            query: [],
+            SEARCH: {"items": []},
             f"repos/{catalog.UPSTREAM}/git/ref/heads/main": {"object": {"sha": OLD}},
             f"repos/{catalog.UPSTREAM}": {"node_id": "upstream-node"},
             f"repos/{catalog.FORK}": {"node_id": "fork-node"},
@@ -152,37 +152,131 @@ def test_submission_creates_only_version_branch_entry_and_one_pr(publication):
     assert SHA in request["body"]
 
 
+def submission_reads(publication, entry=None, *, state="open", merged=False):
+    entry = entry or publication.entry
+    pr = {
+        "number": 1,
+        "state": state,
+        "merged_at": "today" if merged else None,
+        "html_url": "https://github.com/pr/1",
+        "user": {"login": "tarkilhk"},
+        "head": {
+            "sha": OLD,
+            "ref": "wing-plugin-v0.3.0",
+            "repo": {"full_name": "tarkilhk/hermes-agent"},
+        },
+        "base": {"ref": "main", "repo": {"full_name": "NousResearch/hermes-agent"}},
+        "title": f"plugin-catalog: Wing {entry['version']} Android companion",
+        "body": publication.catalog.description(entry),
+    }
+    return {
+        SEARCH: {"items": [{"number": 1}]},
+        "repos/NousResearch/hermes-agent/pulls/1": pr,
+        "repos/NousResearch/hermes-agent/pulls/1/files?per_page=2": [
+            {"filename": "plugin-catalog/wing.yaml"}
+        ],
+        f"repos/tarkilhk/hermes-agent/contents/plugin-catalog/wing.yaml?ref={OLD}": {
+            "sha": "existing-blob",
+            "content": base64.b64encode(publication.catalog.entry_yaml(entry).encode()).decode(),
+        },
+    }
+
+
 @pytest.mark.parametrize("merged", [False, True])
 def test_existing_submission_is_idempotent_even_after_branch_deleted(publication, merged):
-    entry = publication.entry
-    query = "repos/NousResearch/hermes-agent/pulls?state=all&head=tarkilhk%3Awing-plugin-v0.3.0&base=main"
     github = FakeGitHub(
-        {
-            query: [
-                {
-                    "state": "closed" if merged else "open",
-                    "merged_at": "today" if merged else None,
-                    "html_url": "https://github.com/pr/1",
-                    "head": {"sha": OLD},
-                }
-            ],
-            f"repos/tarkilhk/hermes-agent/contents/plugin-catalog/wing.yaml?ref={OLD}": {
-                "content": base64.b64encode(publication.catalog.entry_yaml(entry).encode()).decode()
-            },
-        }
+        submission_reads(publication, state="closed" if merged else "open", merged=merged)
     )
-    assert publication.catalog.submit(entry, github) == "https://github.com/pr/1"
+    assert publication.catalog.submit(publication.entry, github) == "https://github.com/pr/1"
     assert all(method == "GET" for method, _, _ in github.calls)
 
 
 def test_closed_unmerged_submission_is_not_reopened(publication):
-    query = "repos/NousResearch/hermes-agent/pulls?state=all&head=tarkilhk%3Awing-plugin-v0.3.0&base=main"
-    github = FakeGitHub(
-        {query: [{"state": "closed", "merged_at": None, "html_url": "https://github.com/pr/1"}]}
-    )
+    github = FakeGitHub(submission_reads(publication, state="closed"))
     with pytest.raises(RuntimeError, match="closed"):
         publication.catalog.submit(publication.entry, github)
-    assert len(github.calls) == 1
+    assert all(method == "GET" for method, _, _ in github.calls)
+
+
+def test_pending_submission_advances_existing_branch_and_pr(publication):
+    previous = dict(publication.entry, version="0.2.0", sha=OLD)
+    github = FakeGitHub(submission_reads(publication, previous))
+    assert publication.catalog.submit(publication.entry, github) == "https://github.com/pr/1"
+    writes = [(method, path, body) for method, path, body in github.calls if method != "GET"]
+    assert [method for method, _, _ in writes] == ["PUT", "PATCH"]
+    assert writes[0][2]["branch"] == "wing-plugin-v0.3.0"
+    assert writes[0][2]["sha"] == "existing-blob"
+    assert yaml.safe_load(base64.b64decode(writes[0][2]["content"])) == publication.entry
+    assert writes[1][1] == "repos/NousResearch/hermes-agent/pulls/1"
+    assert writes[1][2]["title"] == "plugin-catalog: Wing 0.3.0 Android companion"
+    assert SHA in writes[1][2]["body"]
+
+
+@pytest.mark.parametrize(
+    "previous,message",
+    [
+        ({"sha": OLD}, "different content"),
+        ({"name": "another-plugin"}, "different plugin identity"),
+        ({"version": "0.4.0"}, "downgrade"),
+    ],
+)
+def test_pending_submission_rejects_identity_pin_and_version_mismatch(
+    publication, previous, message
+):
+    github = FakeGitHub(submission_reads(publication, dict(publication.entry, **previous)))
+    with pytest.raises(RuntimeError, match=message):
+        publication.catalog.submit(publication.entry, github)
+    assert all(method == "GET" for method, _, _ in github.calls)
+
+
+def test_pending_submission_never_touches_a_pr_with_other_files(publication):
+    reads = submission_reads(publication)
+    reads["repos/NousResearch/hermes-agent/pulls/1/files?per_page=2"].append(
+        {"filename": "README.md"}
+    )
+    github = FakeGitHub(reads)
+    with pytest.raises(RuntimeError, match="unrelated files"):
+        publication.catalog.submit(publication.entry, github)
+    assert all(method == "GET" for method, _, _ in github.calls)
+
+
+@pytest.mark.parametrize("field", ["author", "fork", "base", "branch"])
+def test_submission_selection_ignores_unrelated_prs(publication, field):
+    reads = submission_reads(publication)
+    pr = reads["repos/NousResearch/hermes-agent/pulls/1"]
+    if field == "author":
+        pr["user"]["login"] = "someone-else"
+    elif field == "fork":
+        pr["head"]["repo"]["full_name"] = "someone-else/hermes-agent"
+    elif field == "base":
+        pr["base"]["ref"] = "another-branch"
+    else:
+        pr["head"]["ref"] = "unrelated-fix"
+    github = FakeGitHub(reads)
+    assert publication.catalog.find_submission(publication.entry, github) == (None, None)
+    assert all(method == "GET" for method, _, _ in github.calls)
+
+
+@pytest.mark.parametrize("merged", [False, True])
+def test_new_release_after_closed_review_uses_fresh_branch(publication, merged):
+    reads = submission_reads(publication, state="closed", merged=merged)
+    reads.update(
+        {
+            "repos/NousResearch/hermes-agent/git/ref/heads/main": {"object": {"sha": OLD}},
+            "repos/NousResearch/hermes-agent": {"node_id": "upstream"},
+            "repos/tarkilhk/hermes-agent": {"node_id": "fork"},
+        }
+    )
+    github = FakeGitHub(reads)
+    entry = dict(publication.entry, version="0.3.1")
+    assert publication.catalog.submit(entry, github).endswith("/pull/fixture")
+    ref = next(
+        body
+        for method, path, body in github.calls
+        if method == "POST" and path.endswith("/git/refs")
+    )
+    assert ref["ref"] == "refs/heads/wing-plugin-v0.3.1"
+    assert not any(method == "PATCH" for method, _, _ in github.calls)
 
 
 def test_absent_tag_uses_404_ref_contract_without_requesting_missing_commit(

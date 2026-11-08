@@ -46,16 +46,22 @@ automatically creates an immutable GitHub tag/release with ZIP, SHA-256 and cata
 entry. Re-running CI can finish a draft release; published tags/assets never move.
 Bump plugin.yaml for the next release. A same-version main push does not repin it.
 
-The catalog job opens a version-specific PR from `tarkilhk/hermes-agent` to
-`NousResearch/hermes-agent`. Hermes maintainers review each pin; publishing on
-GitHub does not wait for their review. The same submission command is available
+The catalog job maintains one open Wing PR from `tarkilhk/hermes-agent` to
+`NousResearch/hermes-agent`, advancing it to the latest published release while
+review is pending. It checks the author, fork, base branch, plugin identity and
+changed files before updating the existing branch and PR. Published release pins
+remain immutable. Once that review is closed or merged, a later release uses a
+fresh version branch and PR; a rejected version is not resubmitted automatically.
+Hermes maintainers review each pin; publishing on GitHub does not wait for their
+review. The same submission command is available
 locally: `python scripts/catalog.py submit --source <release-checkout> --sha <release-commit>`,
 with GitHub CLI authenticated. Run the tooling from current main and provide a
 separate checkout at the published release commit. The source path is required;
 its manifest, catalog metadata and Git HEAD determine the submitted version and
 pin. CI uses the same two checkouts, so submission tooling can be repaired without
 changing a published plugin release. A closed submission requires maintainer
-follow-up; CI does not reopen it.
+follow-up; CI does not reopen it. GitHub API failures remain failed jobs, including
+when the account cannot create a fresh upstream PR.
 
 Unattended catalog submissions require the repository Actions secret
 `CATALOG_TOKEN`: a dedicated GitHub token allowed to write the owner's public fork

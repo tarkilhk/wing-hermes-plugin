@@ -144,52 +144,92 @@ Hermes Desktop UI. Matching client availability is documented in known_issues.
 """
 
 
+def find_submission(entry, github):
+    """Find our single pending catalog review, including its immutable file state."""
+    owner = FORK.split("/")[0]
+    path = f"plugin-catalog/{entry['name']}.yaml"
+    pending = []
+    completed = None
+    page = 1
+    while True:
+        results = github.request(
+            "GET",
+            "search/issues?"
+            + urlencode(
+                {"q": f"repo:{UPSTREAM} author:{owner} is:pr", "per_page": 100, "page": page}
+            ),
+        )
+        if results.get("incomplete_results"):
+            raise RuntimeError("GitHub returned incomplete catalog submission search results")
+        for item in results["items"]:
+            pr = github.request("GET", f"repos/{UPSTREAM}/pulls/{item['number']}")
+            head, base = pr["head"], pr["base"]
+            if (
+                pr["user"]["login"] != owner
+                or (head.get("repo") or {}).get("full_name") != FORK
+                or base["repo"]["full_name"] != UPSTREAM
+                or base["ref"] != "main"
+                or not re.fullmatch(r"wing-plugin-v\d+\.\d+\.\d+", head["ref"])
+            ):
+                continue
+            files = github.request("GET", f"repos/{UPSTREAM}/pulls/{pr['number']}/files?per_page=2")
+            if len(files) != 1 or files[0]["filename"] != path:
+                raise RuntimeError(f"Catalog PR contains unrelated files: {pr['html_url']}")
+            existing = github.request("GET", f"repos/{FORK}/contents/{path}?ref={head['sha']}")
+            previous = yaml.safe_load(base64.b64decode(existing["content"]))
+            if previous.get("name") != entry["name"] or previous.get("repo") != entry["repo"]:
+                raise RuntimeError(f"Catalog PR has a different plugin identity: {pr['html_url']}")
+            if previous.get("version") == entry["version"]:
+                if previous != entry:
+                    raise RuntimeError(
+                        "Existing submission has different content; use a new release version"
+                    )
+                if pr["state"] == "closed":
+                    if not pr.get("merged_at"):
+                        raise RuntimeError(
+                            f"Catalog submission was closed; review {pr['html_url']} before resubmitting"
+                        )
+                    completed = pr
+            if pr["state"] == "open":
+                version = previous.get("version", "")
+                if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+                    raise RuntimeError("Existing catalog version is invalid")
+                if tuple(map(int, version.split("."))) > tuple(
+                    map(int, entry["version"].split("."))
+                ):
+                    raise RuntimeError("Refusing to downgrade a pending catalog submission")
+                pending.append((pr, existing))
+        if len(results["items"]) < 100:
+            break
+        page += 1
+    if len(pending) > 1:
+        raise RuntimeError("Multiple open Wing catalog submissions require reconciliation")
+    return (completed, None) if completed else (pending[0] if pending else (None, None))
+
+
 def submit(entry, github):
     owner = FORK.split("/")[0]
-    branch = f"wing-plugin-v{entry['version']}"
     path = f"plugin-catalog/{entry['name']}.yaml"
     content = entry_yaml(entry)
-    # Stop on merged or rejected submissions; never reopen someone else's decision.
-    prs = github.request(
-        "GET",
-        f"repos/{UPSTREAM}/pulls?"
-        + urlencode(
-            {
-                "state": "all",
-                "head": f"{owner}:{branch}",
-                "base": "main",
-            }
-        ),
-    )
-    if prs:
-        pr = prs[0]
-        if pr["state"] == "closed" and not pr.get("merged_at"):
-            raise RuntimeError(
-                f"Catalog submission was closed; review {pr['html_url']} before resubmitting"
-            )
-        existing = github.request("GET", f"repos/{FORK}/contents/{path}?ref={pr['head']['sha']}")
-        if yaml.safe_load(base64.b64decode(existing["content"])) != entry:
-            raise RuntimeError(
-                "Existing submission has different content; use a new release version"
-            )
+    pr, existing = find_submission(entry, github)
+    if pr and pr["state"] == "closed":
         return pr["html_url"]
+    branch = pr["head"]["ref"] if pr else f"wing-plugin-v{entry['version']}"
     upstream_entry = github.request(
         "GET", f"repos/{UPSTREAM}/contents/{path}?ref=main", missing=True
     )
     if upstream_entry and yaml.safe_load(base64.b64decode(upstream_entry["content"])) == entry:
         return upstream_entry["html_url"]
-    head = github.request("GET", f"repos/{FORK}/git/ref/heads/{branch}", missing=True)
-    if head is None:
-        base = github.request("GET", f"repos/{UPSTREAM}/git/ref/heads/main")
-        github.request(
-            "POST",
-            f"repos/{FORK}/git/refs",
-            {
-                "ref": f"refs/heads/{branch}",
-                "sha": base["object"]["sha"],
-            },
-        )
-    existing = github.request("GET", f"repos/{FORK}/contents/{path}?ref={branch}", missing=True)
+    if not pr:
+        head = github.request("GET", f"repos/{FORK}/git/ref/heads/{branch}", missing=True)
+        if head is None:
+            base = github.request("GET", f"repos/{UPSTREAM}/git/ref/heads/main")
+            github.request(
+                "POST",
+                f"repos/{FORK}/git/refs",
+                {"ref": f"refs/heads/{branch}", "sha": base["object"]["sha"]},
+            )
+        existing = github.request("GET", f"repos/{FORK}/contents/{path}?ref={branch}", missing=True)
     if not existing or yaml.safe_load(base64.b64decode(existing["content"])) != entry:
         # A partial prior run may have created the branch but not its file.
         # Never overwrite another version already submitted on this branch.
@@ -205,6 +245,14 @@ def submit(entry, github):
         if existing:
             body["sha"] = existing["sha"]
         github.request("PUT", f"repos/{FORK}/contents/{path}", body)
+    metadata = {
+        "title": f"plugin-catalog: Wing {entry['version']} Android companion",
+        "body": description(entry),
+    }
+    if pr:
+        if any(pr.get(key) != value for key, value in metadata.items()):
+            github.request("PATCH", f"repos/{UPSTREAM}/pulls/{pr['number']}", metadata)
+        return pr["html_url"]
     # Identify both repositories explicitly for the cross-fork mutation.
     upstream = github.request("GET", f"repos/{UPSTREAM}")
     fork = github.request("GET", f"repos/{FORK}")
@@ -218,10 +266,10 @@ def submit(entry, github):
                 "input": {
                     "repositoryId": upstream["node_id"],
                     "headRepositoryId": fork["node_id"],
-                    "title": f"plugin-catalog: Wing {entry['version']} Android companion",
+                    "title": metadata["title"],
                     "headRefName": f"{owner}:{branch}",
                     "baseRefName": "main",
-                    "body": description(entry),
+                    "body": metadata["body"],
                     "maintainerCanModify": True,
                 }
             },
