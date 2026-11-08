@@ -37,7 +37,10 @@ the model must use the tool and include its returned reference.
 Hermes supplies both the profile prompt and its normal voice policy. The plugin
 transports the profile prompt as a developer `initial_items` message for Codex
 subscription voice, or as session instructions for API voice. It specifies
-delegation to Hermes. Recent chat is separate input data. Prompts are not silently truncated.
+delegation to Hermes. A startup handoff tells the live speaker to adopt the
+profile’s identity from its first reply, including a voice name recorded in native
+memory. The handoff adds no identity facts and preserves the complete native
+prompt. Recent chat is separate input data. Prompts are not silently truncated.
 Provider context limits can reject startup.
 
 The fresh-profile inspector uses profile defaults, with a separate temporary

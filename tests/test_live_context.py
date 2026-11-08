@@ -1,14 +1,16 @@
 """Opt-in real subscription recall test. Never runs with account access in CI.
 
 WING_LIVE_CONTEXT_TEST points to private JSON with base_url, login_file, profile,
-audio_file (8 kHz mono 16-bit WAV question), and expected_terms from that profile.
-This opens one bounded voice call. It writes no Hermes conversation turns.
+audio_file (8 kHz mono 16-bit WAV question), expected_identity, expected_terms,
+and calls (1–5 independent fresh sessions). The question must not supply the identity.
+This opens the explicitly configured number of bounded voice calls. It writes no Hermes conversation turns.
 """
 
 import array
 import asyncio
 import json
 import os
+import re
 import time
 import wave
 from pathlib import Path
@@ -24,6 +26,8 @@ def test_subscription_recalls_native_profile_context():
     rtc = pytest.importorskip("aiortc")
     config = json.loads(Path(os.environ["WING_LIVE_CONTEXT_TEST"]).read_text())
     assert config["expected_terms"], "At least one profile fact is required"
+    assert config["expected_identity"].strip(), "The profile voice identity is required"
+    assert type(config["calls"]) is int and 1 <= config["calls"] <= 5
     credentials = json.loads(Path(config["login_file"]).read_text())
 
     class Speech(rtc.AudioStreamTrack):
@@ -43,12 +47,12 @@ def test_subscription_recalls_native_profile_context():
                 frame.planes[0].update(chunk.ljust(frame.planes[0].buffer_size, b"\0"))
             return frame
 
-    async def exercise():
+    async def exercise(attempt):
         pc = rtc.RTCPeerConnection()
         speech = Speech()
         pc.addTrack(speech)
         channel = pc.createDataChannel("oai-events")
-        answers, errors = [], []
+        answers, errors, questions = [], [], []
         completed = asyncio.Event()
         frames = 0
         peak = 0
@@ -77,6 +81,8 @@ def test_subscription_recalls_native_profile_context():
                 errors.append(event["type"])
                 completed.set()
             turn = event.get("turn", {})
+            if event.get("type") == "turn.done" and turn.get("role") == "user":
+                questions.append(turn.get("transcript", ""))
             if event.get("type") == "turn.done" and turn.get("role") == "assistant":
                 answers.append(turn.get("transcript", ""))
                 completed.set()
@@ -107,10 +113,24 @@ def test_subscription_recalls_native_profile_context():
                 await asyncio.wait_for(completed.wait(), timeout=40)
                 assert not errors, "Provider rejected or closed the session"
                 assert frames > 0 and peak > 0 and speech.position > 0, "No audible audio exchanged"
-                answer = " ".join(answers).casefold()
+                assert len(answers) == 1, "Acceptance must inspect the first reply only"
+                assert questions, "The provider must have heard the spoken question"
+                assert not re.search(
+                    r"\b" + re.escape(config["expected_identity"]) + r"\b",
+                    " ".join(questions),
+                    re.IGNORECASE,
+                ), "The spoken question supplied the identity"
+                assert identifies_in_first_reply(answers[0], config["expected_identity"]), (
+                    "First spoken reply did not adopt the profile voice identity"
+                )
+                answer = answers[0].casefold()
                 # Never print personal answers or expected profile terms in failure output.
                 assert all(term.casefold() in answer for term in config["expected_terms"]), (
                     "Spoken answer did not recall the expected native profile facts"
+                )
+                print(
+                    f"Call {attempt + 1}: first-reply identity and user facts verified; "
+                    f"received {frames} audio frames with peak {peak}."
                 )
         finally:
             if channel.readyState == "open":
@@ -118,4 +138,34 @@ def test_subscription_recalls_native_profile_context():
                 await asyncio.sleep(0.2)
             await pc.close()
 
-    asyncio.run(exercise())
+    for attempt in range(config["calls"]):
+        asyncio.run(exercise(attempt))
+
+
+def identifies_in_first_reply(answer, identity):
+    normalized = answer.casefold().replace("’", "'")
+    name = re.escape(identity.casefold())
+    return not re.search(
+        r"\b(?:i'm|i am|my name is|my name's|this is)\s+(?:chatgpt|gpt[- ]live)\b", normalized
+    ) and bool(
+        re.search(rf"\b(?:i'm|i am|my name is|my name's|this is)\s+{name}\b", normalized)
+        or re.match(rf"\s*{name}\s+here\b", normalized)
+    )
+
+
+@pytest.mark.parametrize(
+    "answer,expected",
+    [
+        ("I'm Ari, and I know you're Robert.", True),
+        ("Hi, I’m Ari from Hermes.", True),
+        ("My name is Ari.", True),
+        ("Ari here. Hello Robert.", True),
+        ("I'm ChatGPT. Your notes say Ari is the Hermes voice.", False),
+        ("I'm ChatGPT, but your notes mention Ari.", False),
+        ("I'm Ariana.", False),
+        ("Hello. I'm Ari.", True),
+        ("I'm ChatGPT. My name is Ari.", False),
+    ],
+)
+def test_identity_acceptance_requires_consistent_self_identification(answer, expected):
+    assert identifies_in_first_reply(answer, "Ari") is expected

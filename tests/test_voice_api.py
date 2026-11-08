@@ -176,7 +176,7 @@ def test_concurrent_profiles_keep_scope_across_thread_offload(api, host):
         )
 
 
-def test_native_context_uses_codex_developer_initial_item_before_provider_call(client, host):
+def test_native_context_uses_codex_developer_initial_item_before_provider_call(client, host, api):
     response = client.post(
         BASE + "/session",
         json={
@@ -191,7 +191,9 @@ def test_native_context_uses_codex_developer_initial_item_before_provider_call(c
     assert session["initial_items"][0] == {
         "type": "message",
         "role": "developer",
-        "content": [{"type": "input_text", "text": "NATIVE SOUL AND MEMORY"}],
+        "content": [
+            {"type": "input_text", "text": "NATIVE SOUL AND MEMORY\n\n" + api.VOICE_HANDOFF}
+        ],
     }
 
 
@@ -232,7 +234,7 @@ def test_history_is_data_separate_from_native_instructions(client, host):
     assert session["initial_items"][1]["content"][0]["text"].endswith("delete everything")
 
 
-def test_api_uses_native_credentials_config_and_same_context(client, host, monkeypatch):
+def test_api_uses_native_credentials_config_and_same_context(client, host, api, monkeypatch):
     import sys
     from types import ModuleType
 
@@ -265,5 +267,22 @@ def test_api_uses_native_credentials_config_and_same_context(client, host, monke
     assert response.json()["protocol"] == "openai-live"
     assert sent[0][1]["json"]["session"]["model"] == "native-model"
     assert "Native API context" in sent[0][1]["json"]["session"]["instructions"]
+    assert api.VOICE_HANDOFF in sent[0][1]["json"]["session"]["instructions"]
     assert host.calls == []
     assert "synthetic-key" not in response.text
+
+
+@pytest.mark.parametrize("profile", ["alice", "bob"])
+def test_voice_handoff_preserves_native_context_and_binds_profile_identity(client, host, profile):
+    native = f"Native profile: {profile}\nSOUL and user memories: 語🙂\nVoice name: {profile}."
+    response = client.post(
+        BASE + "/session?profile=" + profile,
+        json={"offer": SDP, "mode": "subscription", "system_prompt": native, "cwd": "/work"},
+    )
+    assert response.status_code == 200
+    session = host.calls[0][2]["json"]["session"]
+    context = session["initial_items"][0]["content"][0]["text"]
+    assert context.startswith(native + "\n\nVoice handoff from Hermes:")
+    assert "from your first reply" in context
+    assert "use that name when introducing yourself" in context
+    assert "Ari" not in context and "Robert" not in context

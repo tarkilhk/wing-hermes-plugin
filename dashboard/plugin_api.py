@@ -49,6 +49,14 @@ status using the user's words. Do not execute tools yourself.
 """
 
 
+# Bind the live speaker to Hermes-owned identity/memory without parsing names or
+# inventing a second persona. Sent in startup context before audio can begin.
+VOICE_HANDOFF = """Voice handoff from Hermes:
+You are the voice of the Hermes profile above. Use its identity from your first reply. If its memory records a voice name, use that name when introducing yourself or answering who you are.
+Answer questions about the user from the supplied profile, memory and chat history. Say when a fact is missing.
+Follow the existing voice and delegation policies for speaking and tool work."""
+
+
 def valid_sdp(value: str) -> bool:
     lines = value.splitlines()
     return (
@@ -165,7 +173,7 @@ def startup_context(body):
                 "location": frames[-1].name if frames else "profile_prompt",
             },
         ) from None
-    return prompt
+    return prompt + "\n\n" + VOICE_HANDOFF
 
 
 def api_exchange(body, instructions, history):
