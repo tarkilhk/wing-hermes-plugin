@@ -1,7 +1,10 @@
 name: wing
-version: "0.2.3"
-description: Profile-context voice for Wing in subscription and API modes. Hermes owns credentials, agent work and profile configuration.
+version: "0.3.0"
+description: Structured email drafts and profile-context voice for Wing. Email drafts need no provider credentials.
 license: MIT
 requires_hermes: ">=0.23.0"
 requires_auth:
   - openai-codex
+provides_tools:
+  - wing_email_draft
+  - wing_email_draft_read

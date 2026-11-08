@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import os
 import subprocess
@@ -16,7 +17,23 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-router = APIRouter(prefix="/voice/v2")
+router = APIRouter()
+# Hermes imports dashboard APIs as standalone files, outside the plugin package.
+_spec = importlib.util.spec_from_file_location(
+    "wing_email_drafts_api", Path(__file__).resolve().parent.parent / "drafts.py"
+)
+_drafts = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_drafts)
+
+
+@router.get("/drafts/v1/{draft_id}/versions/{version}")
+def email_draft(draft_id: str, version: int):
+    try:
+        return _drafts.DraftStore().read(draft_id, version)
+    except _drafts.DraftError as exc:
+        raise HTTPException(exc.code, str(exc)) from None
+
+
 MODEL = "gpt-live-1-codex"
 ENDPOINT = (
     "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
@@ -68,7 +85,7 @@ def host_services():
     return plugin_provider_requests, live_instructions
 
 
-@router.get("/status")
+@router.get("/voice/v2/status")
 def status(mode: Literal["subscription", "api"]):
     """Transport capability, not proof of account sign-in or voice entitlement."""
     try:
@@ -274,7 +291,7 @@ def connection_result(body, answer):
     }
 
 
-@router.post("/session")
+@router.post("/voice/v2/session")
 async def session(body: SessionOffer):
     # to_thread preserves Hermes's ContextVar profile scope. Never mutate
     # HERMES_HOME or serialize profiles behind a process-global lock.

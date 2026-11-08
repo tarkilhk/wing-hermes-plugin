@@ -32,6 +32,7 @@ def installed_plugin(tmp_path, monkeypatch):
     installed = tmp_path / "plugins/wing"
     shutil.copytree(ROOT / "dashboard", installed / "dashboard")
     shutil.copy(ROOT / "plugin.yaml", installed / "plugin.yaml")
+    shutil.copy(ROOT / "drafts.py", installed / "drafts.py")
     monkeypatch.setattr(provider, "_plugin_roots", lambda: {installed.parent})
     oauth = ModuleType("hermes_cli.plugin_oauth")
     oauth._plugin_oauth_spec = lambda *_: None
@@ -112,3 +113,33 @@ def test_native_host_refuses_undeclared_sign_in(installed_plugin):
         )
     assert error.value.status_code == 502
     assert sent == []
+
+
+def test_native_profile_storage_keeps_exact_versions_without_provider_access(tmp_path, monkeypatch):
+    source = os.environ.get("HERMES_SOURCE_ROOT")
+    if not source:
+        pytest.skip("Set HERMES_SOURCE_ROOT to run the native Hermes contract check")
+    monkeypatch.syspath_prepend(source)
+    import importlib.util
+
+    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+
+    spec = importlib.util.spec_from_file_location("wing_draft_native", ROOT / "drafts.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    store = module.DraftStore()
+    fields = {"to": ["hotel@example.com"], "cc": [], "bcc": [], "subject": "Stay", "body": "Hello"}
+    token = set_hermes_home_override(tmp_path / "alice")
+    try:
+        saved = store.save(fields)
+        assert store.read(saved["id"], 1) == saved
+    finally:
+        reset_hermes_home_override(token)
+    token = set_hermes_home_override(tmp_path / "bob")
+    try:
+        with pytest.raises(module.DraftError) as error:
+            store.read(saved["id"], 1)
+        assert error.value.code == 404
+    finally:
+        reset_hermes_home_override(token)
+    assert (tmp_path / "alice/plugin-data/wing/email-drafts.db").is_file()

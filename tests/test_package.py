@@ -27,4 +27,8 @@ def test_release_is_deterministic_and_loads_without_desktop_dependencies(tmp_pat
     assert manifest["name"] == dashboard["name"] == "wing"
     assert manifest["requires_auth"] == ["openai-codex"]
     api = load_api(installed)
-    assert {route.path for route in api.router.routes} == {"/voice/v2/status", "/voice/v2/session"}
+    assert {route.path for route in api.router.routes} == {
+        "/voice/v2/status",
+        "/voice/v2/session",
+        "/drafts/v1/{draft_id}/versions/{version}",
+    }

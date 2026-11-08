@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FILES = (
     "plugin.yaml",
     "__init__.py",
+    "drafts.py",
     "dashboard/manifest.json",
     "dashboard/plugin_api.py",
     "dashboard/context_worker.py",

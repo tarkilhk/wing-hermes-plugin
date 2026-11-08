@@ -1,9 +1,14 @@
-name: Check and package
+name: Check, release and submit
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: wing-plugin-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -18,13 +23,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: NousResearch/hermes-agent
-          ref: 981791d9d41fd2efde27f563873ce8c48ef1dac6
+          ref: 8d7061f1a74980a7549356a4e5e57b603475ddf0
           path: .hermes-source
           persist-credentials: false
       - run: python3 -m venv .venv
       - run: .venv/bin/python -m pip install -r requirements-dev.txt
-      - run: .venv/bin/python -m ruff check dashboard tests scripts __init__.py
-      - run: .venv/bin/python -m ruff format --check dashboard tests scripts __init__.py
+      - run: .venv/bin/python -m ruff check dashboard tests scripts __init__.py drafts.py
+      - run: .venv/bin/python -m ruff format --check dashboard tests scripts __init__.py drafts.py
       - run: .venv/bin/python -m pytest
         env:
           HERMES_SOURCE_ROOT: ${{ github.workspace }}/.hermes-source
@@ -33,3 +38,55 @@ jobs:
         with:
           name: wing-plugin
           path: dist/
+
+  admission:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: NousResearch/hermes-agent/.github/actions/plugin-validate@8d7061f1a74980a7549356a4e5e57b603475ddf0
+        with:
+          path: .
+          hermes-ref: main
+
+  release:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [check, admission]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install PyYAML==6.0.3
+      - name: Publish immutable version and artifacts
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: python3 scripts/release.py --sha "$RELEASE_SHA"
+
+  catalog:
+    needs: release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
+      - run: python3 -m pip install PyYAML==6.0.3
+      - name: Submit reviewed catalog pin
+        env:
+          GH_TOKEN: ${{ secrets.CATALOG_TOKEN }}
+          RELEASE_SHA: ${{ needs.release.outputs.sha }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo '::warning::CATALOG_TOKEN is not configured. GitHub release is published; automatic upstream PR submission needs this separate credential.'
+            echo 'Catalog submission needs the CATALOG_TOKEN Actions secret. The exact entry is attached to the release; the initial PR can be submitted with the local catalog command.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 scripts/catalog.py submit --sha "$RELEASE_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
