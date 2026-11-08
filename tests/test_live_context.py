@@ -100,6 +100,7 @@ def test_subscription_recalls_native_profile_context():
                     params={"profile": config["profile"]},
                     json={
                         "offer": pc.localDescription.sdp,
+                        "voice": "cove",
                         "mode": "subscription",
                         "system_prompt": None,
                         "cwd": config.get("cwd", ""),

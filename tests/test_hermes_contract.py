@@ -78,6 +78,7 @@ def test_installed_plugin_uses_native_signer_and_voice_policy(installed_plugin):
         result = asyncio.run(
             api.session(
                 api.SessionOffer(
+                    voice="cove",
                     offer=SDP,
                     mode="subscription",
                     system_prompt="Native saved context",
@@ -104,6 +105,7 @@ def test_native_host_refuses_undeclared_sign_in(installed_plugin):
         asyncio.run(
             api.session(
                 api.SessionOffer(
+                    voice="cove",
                     offer=SDP,
                     mode="subscription",
                     system_prompt="Native saved context",

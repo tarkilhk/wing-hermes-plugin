@@ -19,7 +19,13 @@ def test_status_is_capability_only_and_records_no_provider_call(client, host):
 def test_success_preserves_sdp_and_uses_host_instructions(client, host, api):
     response = client.post(
         BASE + "/session?profile=alice",
-        json={"mode": "subscription", "system_prompt": None, "cwd": "/workspace", "offer": SDP},
+        json={
+            "mode": "subscription",
+            "system_prompt": None,
+            "cwd": "/workspace",
+            "voice": "cove",
+            "offer": SDP,
+        },
     )
     assert response.status_code == 200
     result = response.json()
@@ -49,8 +55,8 @@ def test_success_preserves_sdp_and_uses_host_instructions(client, host, api):
         {"voice": "unsupported"},
         {"offer": 123},
         {"offer": "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"},
-        {"offer": SDP + "x" * (128 * 1024)},
-        {"offer": SDP + "💬" * 40000},
+        {"voice": "cove", "offer": SDP + "x" * (128 * 1024)},
+        {"voice": "cove", "offer": SDP + "💬" * 40000},
     ],
 )
 def test_invalid_request_never_reaches_credentials(client, host, extra):
@@ -60,6 +66,7 @@ def test_invalid_request_never_reaches_credentials(client, host, extra):
             "mode": "subscription",
             "system_prompt": None,
             "cwd": "/workspace",
+            "voice": "cove",
             "offer": SDP,
             **extra,
         },
@@ -75,7 +82,13 @@ def test_provider_errors_are_safe_and_never_retried(client, host, code, expected
     host.code, host.body = code, b"PRIVATE upstream body and account"
     response = client.post(
         BASE + "/session",
-        json={"mode": "subscription", "system_prompt": None, "cwd": "/workspace", "offer": SDP},
+        json={
+            "mode": "subscription",
+            "system_prompt": None,
+            "cwd": "/workspace",
+            "voice": "cove",
+            "offer": SDP,
+        },
     )
     assert response.status_code == expected
     assert "PRIVATE" not in response.text
@@ -87,7 +100,13 @@ def test_invalid_provider_answer_is_not_returned(client, host, body):
     host.body = body
     response = client.post(
         BASE + "/session",
-        json={"mode": "subscription", "system_prompt": None, "cwd": "/workspace", "offer": SDP},
+        json={
+            "mode": "subscription",
+            "system_prompt": None,
+            "cwd": "/workspace",
+            "voice": "cove",
+            "offer": SDP,
+        },
     )
     assert response.status_code == 502
     assert response.json() == {"detail": "ChatGPT returned an invalid audio answer."}
@@ -100,7 +119,13 @@ def test_exceptions_do_not_expose_credentials(client, host, failure, status):
     host.failure = failure
     response = client.post(
         BASE + "/session",
-        json={"mode": "subscription", "system_prompt": None, "cwd": "/workspace", "offer": SDP},
+        json={
+            "mode": "subscription",
+            "system_prompt": None,
+            "cwd": "/workspace",
+            "voice": "cove",
+            "offer": SDP,
+        },
     )
     assert response.status_code == status
     assert "PRIVATE" not in response.text
@@ -111,7 +136,13 @@ def test_missing_sign_in_is_distinct(client, host):
     host.failure = host.NotSignedIn("PRIVATE refresh details")
     response = client.post(
         BASE + "/session",
-        json={"mode": "subscription", "system_prompt": None, "cwd": "/workspace", "offer": SDP},
+        json={
+            "mode": "subscription",
+            "system_prompt": None,
+            "cwd": "/workspace",
+            "voice": "cove",
+            "offer": SDP,
+        },
     )
     assert response.status_code == 401
     assert response.json() == {"detail": "Sign in to OpenAI Codex in this Hermes profile."}
@@ -120,7 +151,13 @@ def test_missing_sign_in_is_distinct(client, host):
 def test_unknown_profile_is_rejected_by_host_before_plugin(client, host):
     response = client.post(
         BASE + "/session?profile=unknown",
-        json={"mode": "subscription", "system_prompt": None, "cwd": "/workspace", "offer": SDP},
+        json={
+            "mode": "subscription",
+            "system_prompt": None,
+            "cwd": "/workspace",
+            "voice": "cove",
+            "offer": SDP,
+        },
     )
     assert response.status_code == 404
     assert host.calls == []
@@ -135,6 +172,7 @@ def test_old_plugin_and_api_wrapper_are_not_routes(client, host):
                     "mode": "subscription",
                     "system_prompt": None,
                     "cwd": "/workspace",
+                    "voice": "cove",
                     "offer": SDP,
                 },
             ).status_code
@@ -156,6 +194,7 @@ def test_concurrent_profiles_keep_scope_across_thread_offload(api, host):
                             "mode": "subscription",
                             "system_prompt": None,
                             "cwd": "/workspace",
+                            "voice": "cove",
                             "offer": SDP,
                         },
                     )
@@ -180,6 +219,7 @@ def test_native_context_uses_codex_developer_initial_item_before_provider_call(c
     response = client.post(
         BASE + "/session",
         json={
+            "voice": "cove",
             "offer": SDP,
             "mode": "subscription",
             "system_prompt": "NATIVE SOUL AND MEMORY",
@@ -205,6 +245,7 @@ def test_context_failure_never_starts_a_provider_session(client, host, api, monk
     response = client.post(
         BASE + "/session",
         json={
+            "voice": "cove",
             "offer": SDP,
             "mode": "subscription",
             "system_prompt": None,
@@ -220,6 +261,7 @@ def test_history_is_data_separate_from_native_instructions(client, host):
     response = client.post(
         BASE + "/session",
         json={
+            "voice": "cove",
             "offer": SDP,
             "mode": "subscription",
             "system_prompt": "NATIVE PROMPT",
@@ -241,7 +283,12 @@ def test_api_uses_native_credentials_config_and_same_context(client, host, api, 
     native = ModuleType("tools.voice_live")
     native._live_section = lambda: {"profile": "native"}
     native._resolve_credentials = lambda cfg: ("synthetic-key", "https://api.openai.com/v1")
-    native.build_session_config = lambda history: {"model": "native-model", "input": history}
+    native.GPT_LIVE_VOICES = ("marin", "cedar")
+    native.build_session_config = lambda history: {
+        "model": "native-model",
+        "input": history,
+        "audio": {"output": {"voice": "marin"}},
+    }
     tools = ModuleType("tools")
     tools.voice_live = native
     monkeypatch.setitem(sys.modules, "tools", tools)
@@ -258,6 +305,7 @@ def test_api_uses_native_credentials_config_and_same_context(client, host, api, 
         json={
             "offer": SDP,
             "mode": "api",
+            "voice": "cedar",
             "system_prompt": "Native API context",
             "cwd": "/work",
             "history": "Earlier conversation",
@@ -266,6 +314,7 @@ def test_api_uses_native_credentials_config_and_same_context(client, host, api, 
     assert response.status_code == 200
     assert response.json()["protocol"] == "openai-live"
     assert sent[0][1]["json"]["session"]["model"] == "native-model"
+    assert sent[0][1]["json"]["session"]["audio"]["output"]["voice"] == "cedar"
     assert "Native API context" in sent[0][1]["json"]["session"]["instructions"]
     assert api.VOICE_HANDOFF in sent[0][1]["json"]["session"]["instructions"]
     assert host.calls == []
@@ -277,7 +326,13 @@ def test_voice_handoff_preserves_native_context_and_binds_profile_identity(clien
     native = f"Native profile: {profile}\nSOUL and user memories: 語🙂\nVoice name: {profile}."
     response = client.post(
         BASE + "/session?profile=" + profile,
-        json={"offer": SDP, "mode": "subscription", "system_prompt": native, "cwd": "/work"},
+        json={
+            "voice": "cove",
+            "offer": SDP,
+            "mode": "subscription",
+            "system_prompt": native,
+            "cwd": "/work",
+        },
     )
     assert response.status_code == 200
     session = host.calls[0][2]["json"]["session"]
@@ -286,3 +341,37 @@ def test_voice_handoff_preserves_native_context_and_binds_profile_identity(clien
     assert "from your first reply" in context
     assert "use that name when introducing yourself" in context
     assert "Ari" not in context and "Robert" not in context
+
+
+@pytest.mark.parametrize(
+    "voice", ["arbor", "breeze", "cove", "ember", "juniper", "maple", "sol", "spruce", "vale"]
+)
+def test_subscription_voice_reaches_provider(client, host, voice):
+    response = client.post(
+        BASE + "/session?profile=alice",
+        json={
+            "mode": "subscription",
+            "voice": voice,
+            "offer": SDP,
+            "system_prompt": "Native context",
+            "cwd": "/work",
+        },
+    )
+    assert response.status_code == 200
+    assert host.calls[0][2]["json"]["session"]["audio"]["output"]["voice"] == voice
+    assert response.json()["voice"] == voice
+
+
+def test_subscription_rejects_api_voice_before_provider(client, host):
+    response = client.post(
+        BASE + "/session",
+        json={
+            "mode": "subscription",
+            "voice": "marin",
+            "offer": SDP,
+            "system_prompt": "Native context",
+            "cwd": "/work",
+        },
+    )
+    assert response.status_code == 422
+    assert host.calls == []

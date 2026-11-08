@@ -15,7 +15,7 @@ from typing import Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 router = APIRouter()
 # Hermes imports dashboard APIs as standalone files, outside the plugin package.
@@ -68,6 +68,27 @@ def valid_sdp(value: str) -> bool:
     )
 
 
+SUBSCRIPTION_VOICES = (
+    "arbor",
+    "breeze",
+    "cove",
+    "ember",
+    "juniper",
+    "maple",
+    "sol",
+    "spruce",
+    "vale",
+)
+
+
+def supported_voices(mode):
+    if mode == "subscription":
+        return SUBSCRIPTION_VOICES
+    from tools.voice_live import GPT_LIVE_VOICES
+
+    return GPT_LIVE_VOICES
+
+
 class SessionOffer(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -76,7 +97,13 @@ class SessionOffer(BaseModel):
     cwd: str = Field(max_length=4096)
     history: str = Field(default="", max_length=24000)
     offer: str = Field(min_length=1, max_length=MAX_SDP_BYTES)
-    voice: Literal["cove"] = "cove"
+    voice: str = Field(min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_voice(self):
+        if self.voice not in supported_voices(self.mode):
+            raise ValueError("Choose a supported voice for this billing mode.")
+        return self
 
     @field_validator("offer")
     @classmethod
@@ -98,6 +125,7 @@ def status(mode: Literal["subscription", "api"]):
     """Transport capability, not proof of account sign-in or voice entitlement."""
     try:
         provider, instructions = host_services()
+        voices = list(supported_voices(mode))
         available = callable(provider.credentialed_provider_request) and callable(instructions)
         if mode == "api":
             from tools.voice_live import resolve_gpt_live_status
@@ -105,6 +133,7 @@ def status(mode: Literal["subscription", "api"]):
             available = resolve_gpt_live_status()["available"]
     except ImportError:
         available = False
+        voices = []
     return {
         "contractVersion": 2,
         "available": available,
@@ -112,7 +141,7 @@ def status(mode: Literal["subscription", "api"]):
         "authProvider": "openai-codex",
         "modes": ["subscription", "api"],
         "model": MODEL,
-        "voices": ["cove"],
+        "voices": voices,
         "handoff": "client",
         "capabilities": {"profileContext": True, "historyAppend": False},
     }
@@ -184,6 +213,7 @@ def api_exchange(body, instructions, history):
         raise HTTPException(503, "Configure OpenAI API voice credentials in Hermes.")
     config = voice_live.build_session_config(history)
     config["instructions"] = instructions
+    config["audio"]["output"]["voice"] = body.voice
     try:
         response = httpx.post(
             base + "/live/sessions",
