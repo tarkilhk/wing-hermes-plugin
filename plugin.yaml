@@ -1,5 +1,5 @@
 name: wing
-version: "0.3.2"
+version: "0.3.3"
 description: "Extra features for the Wing Android app: GPT Live voice and email draft cards."
 license: MIT
 requires_hermes: ">=0.23.0"

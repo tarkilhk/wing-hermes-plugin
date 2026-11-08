@@ -148,5 +148,7 @@ def test_parent_preserves_host_runtime_import_paths_for_worker(api, tmp_path, mo
         return result
 
     monkeypatch.setattr(api.subprocess, "run", worker_probe)
-    body = api.SessionOffer(offer=SDP, mode="subscription", system_prompt=None, cwd="/project")
+    body = api.SessionOffer(
+        voice="cove", offer=SDP, mode="subscription", system_prompt=None, cwd="/project"
+    )
     assert api.profile_prompt(body) == "native dependency available"

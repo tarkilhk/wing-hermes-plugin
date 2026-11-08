@@ -37,6 +37,10 @@ Restart the serving Hermes process if its plugin-loading workflow requires it.
 For voice, select **ChatGPT subscription** or **OpenAI API** in Wing. Subscription
 mode needs an OpenAI Codex sign-in with voice access in that Hermes profile; API
 mode needs the profile's OpenAI voice credentials and has separate billing.
+In **App settings → Voice → GPT-Live voice**, choose the voice for the next call.
+Wing keeps separate subscription/API choices; the plugin passes the selection
+without changing the Hermes profile configuration. API choices use Hermes’s
+`GPT_LIVE_VOICES` catalog. Subscription supports the nine standard ChatGPT voices.
 Spoken exchanges are not yet saved as complete Hermes conversation turns.
 
 For email cards, enable the `wing_email` toolset and ask Hermes to draft an email.
