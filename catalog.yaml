@@ -7,11 +7,13 @@ category: general
 docs_url: https://github.com/tarkilhk/wing-hermes-plugin#readme
 readme: true
 description: >-
-  Companion backend for Wing Android: structured, immutable email drafts and
-  profile-context live voice. Draft tools save recipient, cc/bcc, subject and
-  body; Wing opens the chosen email app for final edits and sending. No email
-  account access or sending tool. Derived from draft-cards' structured version
-  design (arsiktech, MIT); the voice transport credits hermes-live-voice (Synero, MIT).
+  Extra features for the Wing Android app: GPT Live voice and email draft cards.
+  GPT Live voice uses ChatGPT subscription or OpenAI API access with the selected
+  Hermes profile's context. Email draft cards show recipients, cc/bcc, subject and
+  body, then open the user's chosen email app for final edits and sending. Drafts
+  work independently of voice and need no OpenAI credentials or mail account access.
+  Draft cards adapt arsiktech's hermes-draft-cards design (MIT); the voice integration
+  builds on Synero's hermes-live-voice work (MIT).
   Disclosure: draft fields persist in the active profile's plugin-data/wing SQLite
   database. Voice sends SDP, Hermes-built profile context and chat excerpts to
   OpenAI/ChatGPT through Hermes-owned credentials. Fresh voice context starts a

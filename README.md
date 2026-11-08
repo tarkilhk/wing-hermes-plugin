@@ -1,29 +1,25 @@
 # Wing plugin for Hermes
 
-The `wing` plugin creates structured email drafts for Wing and connects its mobile
-voice session to subscription or API voice using the selected Hermes profile. Hermes owns sign-in, credential refresh,
-API-key resolution and profile context. Wing keeps the microphone, speaker and
-WebRTC connection on the phone.
+The `wing` plugin adds extra features to the [Wing Android app](https://github.com/tarkilhk/Wing)
+through your Hermes backend. It is Wing's optional companion plugin, installed
+and enabled in the Hermes profiles where you want to use those features.
 
-Version 0.3.0 adds versioned email drafts. Voice startup uses Hermes-built profile
-context. Existing chats use Hermes's cached or saved prompt; new chats use Hermes's native profile
-inspector in a short-lived process. SOUL, built-in memory, skills and workspace
-context remain assembled by Hermes. Deeper memory retrieval and all tool work
-are delegated into the selected Hermes chat.
+## Features
 
-Saving the complete spoken exchange into shared history still awaits native
-[external-turn recording #121045](https://github.com/NousResearch/hermes-agent/issues/121045).
-Captions do not imply a saved conversation turn.
+| Feature | What it adds to Wing |
+| --- | --- |
+| **GPT Live voice** | Live voice conversations using your ChatGPT subscription or OpenAI API, with context from the selected Hermes profile. Wing handles microphone, speaker and WebRTC on the phone; Hermes handles credentials and delegated work. |
+| **Email draft cards** | Structured drafts with recipients, cc/bcc, subject and body. Wing shows a native card and opens your chosen email app with those fields filled in, ready for you to edit and send. |
+
+These are the plugin's two current features. Email draft cards work independently
+of GPT Live voice and do not require an OpenAI account or voice credentials.
 
 ## Requirements and installation
 
 - Current upstream Hermes, at least 0.23.0, with its dashboard/gateway available
   to Wing and the dashboard Python dependencies installed.
-- For subscription mode, an OpenAI Codex sign-in in the chat's Hermes profile
-  with voice access. For API mode, OpenAI voice API credentials configured in
-  that profile.
-- A Wing build using the `wing` plugin contract. Older development builds using
-  `talk-desktop` must be updated together with this plugin.
+- A matching Wing build with support for the feature you want to use. Email
+  draft cards require Wing's native `wing-email-draft` renderer.
 
 Install the published repository using Hermes's plugin installer:
 
@@ -39,12 +35,26 @@ default profile alone does not enable another profile. Sign-in is managed throug
 Hermes's provider settings. Restart the serving Hermes process if required by
 your installation's plugin-loading workflow.
 
+## GPT Live voice
+
 In Wing, select **ChatGPT subscription** or **OpenAI API** for live voice. Both
 use the Wing plugin so the native profile prompt is available before speech.
-API mode uses Hermes's existing voice configuration and API-key resolver. API
-billing is separate; the plugin never switches modes automatically.
+Subscription mode requires an OpenAI Codex sign-in with voice access in the
+chat's Hermes profile. API mode requires OpenAI voice API credentials configured
+in that profile, using Hermes's existing voice configuration and API-key resolver.
+API billing is separate; the plugin never switches modes automatically.
 
-## Email drafts
+Hermes owns sign-in, credential refresh and profile context. Existing chats use
+Hermes's cached or saved prompt; new chats use Hermes's native profile inspector
+in a short-lived process. SOUL, built-in memory, skills and workspace context
+remain assembled by Hermes. Deeper memory retrieval and all tool work are
+delegated into the selected Hermes chat.
+
+Saving the complete spoken exchange into shared history still awaits native
+[external-turn recording #121045](https://github.com/NousResearch/hermes-agent/issues/121045).
+Captions do not imply a saved conversation turn.
+
+## Email draft cards
 
 Ask Hermes to draft an email. With `wing` enabled and the `wing_email` toolset
 available, `wing_email_draft` stores a draft and returns the card reference that
@@ -74,7 +84,7 @@ payload is handed off without truncation, though each email app controls its own
 compose behavior. Plain email prose and other clients do not become native cards;
 the model must use the tool and include its returned reference.
 
-## Responsibilities
+## Voice context and responsibilities
 
 Hermes supplies both the profile prompt and its normal voice policy. The plugin
 transports the profile prompt as a developer `initial_items` message for Codex
@@ -93,7 +103,7 @@ plugin does not read SOUL or memory files, implement general tool execution, sta
 subprocess, hold a credential store, or maintain a second conversation database.
 It contains no desktop UI or dependency on another voice plugin.
 
-## HTTP contract
+## Voice HTTP contract
 
 Hermes authenticates requests and binds the `profile` query to its request scope.
 The plugin does not accept a profile, model, URL, headers or credentials in the
@@ -157,9 +167,8 @@ loading pattern from [arsiktech/hermes-draft-cards](https://github.com/arsiktech
 contract and native Flutter card; the original desktop approval/sending workflow
 is not included. The original copyright and MIT permission notice are retained.
 
-
-Based on [Synero's hermes-live-voice](https://github.com/Synero/hermes-live-voice)
-(MIT), which provided the original subscription voice integration reference.
+The GPT Live voice integration builds on the original subscription voice work
+in [Synero's hermes-live-voice](https://github.com/Synero/hermes-live-voice) (MIT).
 See [NOTICE](NOTICE.md) and [LICENSE](LICENSE) for attribution and licensing.
 
 For an explicitly authorized live acceptance run, install `aiortc` in your test
