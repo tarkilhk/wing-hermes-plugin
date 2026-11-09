@@ -5,7 +5,7 @@ through your Hermes backend.
 
 ## Features
 
-- **GPT Live voice:** talk using your ChatGPT subscription or OpenAI API, with
+- **GPT Live voice:** talk using your ChatGPT subscription, with
   context from the selected Hermes profile. Hermes handles credentials and tools;
   Wing handles audio on your phone.
 - **Email draft cards:** ask Hermes to draft an email, then open the card in your
@@ -34,14 +34,20 @@ hermes --profile work plugins enable wing
 
 Restart the serving Hermes process if its plugin-loading workflow requires it.
 
-For voice, select **ChatGPT subscription** or **OpenAI API** in Wing. Subscription
-mode needs an OpenAI Codex sign-in with voice access in that Hermes profile; API
-mode needs the profile's OpenAI voice credentials and has separate billing.
+For voice, select **ChatGPT subscription** in Wing. It needs an OpenAI Codex
+sign-in with voice access in that Hermes profile.
 In **App settings → Voice → GPT-Live voice**, choose the voice for the next call.
-Wing keeps separate subscription/API choices; the plugin passes the selection
-without changing the Hermes profile configuration. API choices use Hermes’s
-`GPT_LIVE_VOICES` catalog. Subscription supports the nine standard ChatGPT voices.
+The plugin passes the selection without changing the Hermes profile configuration.
+Subscription supports the nine standard ChatGPT voices.
 Spoken exchanges are not yet saved as complete Hermes conversation turns.
+
+OpenAI API voice is unavailable pending [Hermes #151774](https://github.com/NousResearch/hermes-agent/issues/151774).
+Hermes's session exchange needs per-call instructions and voice parameters before
+Wing can offer this mode through it. The plugin does not read raw API keys.
+
+Fresh voice context requires the conversation's working directory to match the
+selected Hermes profile's configured `terminal.cwd`. Other directories are rejected
+before inspection. An existing native prompt snapshot needs no fresh inspection.
 
 For email cards, enable the `wing_email` toolset and ask Hermes to draft an email.
 Hermes must use the draft tool and include its card reference. Drafts stay in the

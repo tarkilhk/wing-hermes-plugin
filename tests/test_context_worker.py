@@ -121,7 +121,7 @@ def test_parent_preserves_host_runtime_import_paths_for_worker(api, tmp_path, mo
     native = ModuleType("hermes_cli")
     native.__file__ = str(tmp_path / "hermes_cli/__init__.py")
     config = ModuleType("hermes_cli.config")
-    config.load_config = lambda: {}
+    config.load_config = lambda: {"terminal": {"cwd": str(tmp_path)}}
     personality = ModuleType("hermes_cli.personality")
     personality.resolve_ephemeral_system_prompt = lambda _: ""
     constants = ModuleType("hermes_constants")
@@ -149,6 +149,77 @@ def test_parent_preserves_host_runtime_import_paths_for_worker(api, tmp_path, mo
 
     monkeypatch.setattr(api.subprocess, "run", worker_probe)
     body = api.SessionOffer(
-        voice="cove", offer=SDP, mode="subscription", system_prompt=None, cwd="/project"
+        voice="cove", offer=SDP, mode="subscription", system_prompt=None, cwd=str(tmp_path)
     )
     assert api.profile_prompt(body) == "native dependency available"
+
+
+@pytest.mark.parametrize("profile", ["alice", "bob"])
+@pytest.mark.parametrize("requested", ["configured", "alias", "other-profile", "child", "escape"])
+def test_fresh_context_only_inspects_configured_profile_directory(
+    api, tmp_path, monkeypatch, profile, requested
+):
+    import json
+
+    from conftest import SDP
+
+    for name in ("alice", "bob"):
+        (tmp_path / name).mkdir()
+    configured = tmp_path / profile
+    (configured / "child").mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(configured, target_is_directory=True)
+    outside = tmp_path / ("bob" if profile == "alice" else "alice")
+    (configured / "escape").symlink_to(outside, target_is_directory=True)
+    paths = {
+        "configured": configured,
+        "alias": alias,
+        "other-profile": outside,
+        "child": configured / "child",
+        "escape": configured / "escape",
+    }
+    native = ModuleType("hermes_cli")
+    native.__file__ = str(tmp_path / "hermes_cli/__init__.py")
+    config = ModuleType("hermes_cli.config")
+    config.load_config = lambda: {"terminal": {"cwd": str(configured)}}
+    personality = ModuleType("hermes_cli.personality")
+    personality.resolve_ephemeral_system_prompt = lambda _: ""
+    constants = ModuleType("hermes_constants")
+    constants.get_hermes_home = lambda: configured
+    local = ModuleType("tools.environments.local")
+    local.served_profile_child_env = lambda **_: {}
+    for module in (native, config, personality, constants, local):
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+    calls = []
+
+    def inspect(argv, **kwargs):
+        calls.append(json.loads(kwargs["input"]))
+        return SimpleNamespace(stdout=json.dumps({"system_prompt": "Native context"}))
+
+    monkeypatch.setattr(api.subprocess, "run", inspect)
+    body = api.SessionOffer(
+        voice="cove", offer=SDP, mode="subscription", system_prompt=None, cwd=str(paths[requested])
+    )
+    if requested in {"configured", "alias"}:
+        assert api.profile_prompt(body) == "Native context"
+        assert calls == [{"cwd": str(configured)}]
+    else:
+        with pytest.raises(api.HTTPException) as error:
+            api.profile_prompt(body)
+        assert error.value.status_code == 403
+        assert str(outside) not in str(error.value.detail)
+        assert calls == []
+
+    # A supplied snapshot triggers no new filesystem inspection.
+    body.system_prompt = "Saved native context"
+    calls.clear()
+    assert api.profile_prompt(body) == "Saved native context"
+    assert calls == []
+
+    # Missing profile configuration never authorizes the request's cwd.
+    config.load_config = lambda: {}
+    body.system_prompt = None
+    with pytest.raises(api.HTTPException) as error:
+        api.profile_prompt(body)
+    assert error.value.status_code == 424
+    assert calls == []

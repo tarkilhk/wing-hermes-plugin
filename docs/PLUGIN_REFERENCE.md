@@ -36,7 +36,7 @@ the model must use the tool and include its returned reference.
 
 Hermes supplies both the profile prompt and its normal voice policy. The plugin
 transports the profile prompt as a developer `initial_items` message for Codex
-subscription voice, or as session instructions for API voice. It specifies
+subscription voice. It specifies
 delegation to Hermes. A startup handoff tells the live speaker to adopt the
 profile’s identity from its first reply, including a voice name recorded in native
 memory. The handoff adds no identity facts and preserves the complete native
@@ -48,6 +48,11 @@ session identity. It initializes configured memory extensions; it does not run a
 model turn or save chat messages. Session-specific overrides and query-time memory
 prefetch are not reproduced. Ask Hermes through delegation when deeper or current
 memory is required. Existing snapshots may reflect an earlier turn's settings.
+For fresh inspection, the request's `cwd` must resolve to the profile's configured
+`terminal.cwd`; a different directory returns 403 before the inspector starts.
+Only the resolved configured path is sent to the inspector. Missing or invalid
+directory configuration returns 424. This restriction controls fresh filesystem
+discovery; it does not attest the contents of a client-supplied prompt snapshot.
 
 Tasks, tools, memory retrieval, approvals and history remain Hermes-owned. The
 plugin does not read SOUL or memory files, implement general tool execution, start a Codex
@@ -66,11 +71,17 @@ request body.
 | `POST /api/plugins/wing/voice/v2/session?profile=work` | Body `{"offer":"<SDP>","mode":"subscription","system_prompt":null,"cwd":"/workspace","history":"quoted recent chat","voice":"cove"}`; exchanges SDP once using Hermes's signed-in provider API |
 
 Successful negotiation returns `ok`, `contractVersion: 2`, `answer` (SDP),
-the selected mode and protocol (`codex-live-v3` or `openai-live`), `handoff: client`, model and voice.
+the selected mode and protocol (`codex-live-v3`), `handoff: client`, model and voice.
 Errors preserve authorization/rate-limit status without exposing provider bodies.
 A status success does not prove sign-in or account voice access. No provider
 request is retried automatically. Route/version changes are clean changes; the
 old `talk-desktop` endpoints are not aliases.
+
+API-mode status returns `available: false`, an empty voice list and a reason linked
+to [Hermes #151774](https://github.com/NousResearch/hermes-agent/issues/151774).
+The advertised `modes` list contains only `subscription`. API session requests
+return 503 before preparing context or accessing host/provider services. API mode
+will ship once Hermes's host-owned exchange supports per-call instructions and voice.
 
 ## Data and trust
 
@@ -85,5 +96,6 @@ credentials or usage records. It must run inside the authenticated Hermes host,
 not as a separately exposed unauthenticated FastAPI service.
 
 Subscription negotiation uses a provider-specific contract that can change.
-API mode reuses native Hermes configuration and credential resolution. Tests with mocked network responses
+The plugin does not resolve raw API keys or perform an API-key SDP exchange.
+Tests with mocked network responses
 do not establish subscription access or audible quality on a phone.

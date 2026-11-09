@@ -39,6 +39,11 @@ ENDPOINT = (
     "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
 )
 MAX_SDP_BYTES = 128 * 1024
+API_MODE_UNAVAILABLE = (
+    "OpenAI API voice is unavailable until Hermes supports per-call instructions and voice "
+    "in its host-owned session exchange. Use ChatGPT subscription voice. "
+    "https://github.com/NousResearch/hermes-agent/issues/151774"
+)
 
 # Hermes supplies persona/delegation instructions. Only this subscription wire
 # contract and Wing's explicit separation of speech/task interruption live here.
@@ -81,14 +86,6 @@ SUBSCRIPTION_VOICES = (
 )
 
 
-def supported_voices(mode):
-    if mode == "subscription":
-        return SUBSCRIPTION_VOICES
-    from tools.voice_live import GPT_LIVE_VOICES
-
-    return GPT_LIVE_VOICES
-
-
 class SessionOffer(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -101,7 +98,7 @@ class SessionOffer(BaseModel):
 
     @model_validator(mode="after")
     def validate_voice(self):
-        if self.voice not in supported_voices(self.mode):
+        if self.mode == "subscription" and self.voice not in SUBSCRIPTION_VOICES:
             raise ValueError("Choose a supported voice for this billing mode.")
         return self
 
@@ -123,27 +120,26 @@ def host_services():
 @router.get("/voice/v2/status")
 def status(mode: Literal["subscription", "api"]):
     """Transport capability, not proof of account sign-in or voice entitlement."""
-    try:
-        provider, instructions = host_services()
-        voices = list(supported_voices(mode))
-        available = callable(provider.credentialed_provider_request) and callable(instructions)
-        if mode == "api":
-            from tools.voice_live import resolve_gpt_live_status
-
-            available = resolve_gpt_live_status()["available"]
-    except ImportError:
-        available = False
-        voices = []
+    available = False
+    voices = []
+    if mode == "subscription":
+        try:
+            provider, instructions = host_services()
+            voices = list(SUBSCRIPTION_VOICES)
+            available = callable(provider.credentialed_provider_request) and callable(instructions)
+        except ImportError:
+            pass
     return {
         "contractVersion": 2,
         "available": available,
         "authOwner": "hermes-profile",
         "authProvider": "openai-codex",
-        "modes": ["subscription", "api"],
+        "modes": ["subscription"],
         "model": MODEL,
         "voices": voices,
         "handoff": "client",
         "capabilities": {"profileContext": True, "historyAppend": False},
+        **({"reason": API_MODE_UNAVAILABLE} if mode == "api" else {}),
     }
 
 
@@ -152,12 +148,26 @@ def profile_prompt(body: SessionOffer) -> str:
     from hermes_cli.config import load_config
     from hermes_cli.personality import resolve_ephemeral_system_prompt
 
+    config = load_config()
     prompt = body.system_prompt
     if not prompt:
         import hermes_cli
         from hermes_constants import get_hermes_home
         from tools.environments.local import served_profile_child_env
 
+        configured = (config.get("terminal") or {}).get("cwd")
+        if not isinstance(configured, str) or not configured.strip():
+            raise HTTPException(
+                424, "Configure this Hermes profile's terminal.cwd for fresh voice context."
+            )
+        cwd = Path(configured).expanduser().resolve(strict=True)
+        if not cwd.is_dir():
+            raise HTTPException(424, "This Hermes profile's terminal.cwd must be a directory.")
+        if Path(body.cwd).expanduser().resolve() != cwd:
+            raise HTTPException(
+                403,
+                "Fresh voice context is limited to this profile's configured working directory.",
+            )
         env = served_profile_child_env(target_home=get_hermes_home(), inherit_credentials=True)
         root = str(Path(hermes_cli.__file__).resolve().parent.parent)
         # This child runs Hermes itself, not a user terminal command. Preserve
@@ -166,7 +176,7 @@ def profile_prompt(body: SessionOffer) -> str:
         env["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(paths))
         result = subprocess.run(
             [sys.executable, str(Path(__file__).with_name("context_worker.py"))],
-            input=json.dumps({"cwd": body.cwd}),
+            input=json.dumps({"cwd": str(cwd)}),
             text=True,
             capture_output=True,
             env=env,
@@ -181,7 +191,7 @@ def profile_prompt(body: SessionOffer) -> str:
         prompt = result["system_prompt"]
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("Hermes returned no profile prompt")
-    overlay = resolve_ephemeral_system_prompt(load_config())
+    overlay = resolve_ephemeral_system_prompt(config)
     return prompt + ("\n\n" + overlay if overlay else "")
 
 
@@ -205,38 +215,9 @@ def startup_context(body):
     return prompt + "\n\n" + VOICE_HANDOFF
 
 
-def api_exchange(body, instructions, history):
-    from tools import voice_live
-
-    key, base = voice_live._resolve_credentials(voice_live._live_section())
-    if not key:
-        raise HTTPException(503, "Configure OpenAI API voice credentials in Hermes.")
-    config = voice_live.build_session_config(history)
-    config["instructions"] = instructions
-    config["audio"]["output"]["voice"] = body.voice
-    try:
-        response = httpx.post(
-            base + "/live/sessions",
-            json={"session": config, "transport": {"type": "webrtc", "sdp": body.offer}},
-            headers={"Authorization": "Bearer " + key},
-            timeout=30,
-        )
-        if response.status_code not in (200, 201):
-            code = response.status_code if response.status_code in (400, 401, 403, 429) else 502
-            raise HTTPException(code, "OpenAI refused voice startup.")
-        transport = response.json()["transport"]
-        if transport["type"] != "webrtc" or not valid_sdp(transport["sdp"]):
-            raise ValueError("Invalid transport")
-        return transport["sdp"]
-    except HTTPException:
-        raise
-    except httpx.TimeoutException:
-        raise HTTPException(504, "OpenAI voice negotiation timed out.") from None
-    except Exception:
-        raise HTTPException(502, "OpenAI returned an invalid voice connection.") from None
-
-
 def negotiate(body: SessionOffer):
+    if body.mode == "api":
+        raise HTTPException(503, API_MODE_UNAVAILABLE)
     try:
         provider, instructions = host_services()
     except ImportError:
@@ -254,8 +235,6 @@ def negotiate(body: SessionOffer):
             if body.history
             else []
         )
-        if body.mode == "api":
-            return connection_result(body, api_exchange(body, prompt + "\n\n" + policy, history))
         response = provider.credentialed_provider_request(
             "openai-codex",
             "POST",
@@ -322,7 +301,7 @@ def connection_result(body, answer):
         "contractVersion": 2,
         "answer": answer,
         "mode": body.mode,
-        "protocol": "codex-live-v3" if body.mode == "subscription" else "openai-live",
+        "protocol": "codex-live-v3",
         "handoff": "client",
         "model": MODEL,
         "voice": body.voice,

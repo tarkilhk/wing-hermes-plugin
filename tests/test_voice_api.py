@@ -11,7 +11,7 @@ BASE = "/api/plugins/wing/voice/v2"
 def test_status_is_capability_only_and_records_no_provider_call(client, host):
     response = client.get(BASE + "/status?profile=alice&mode=subscription")
     assert response.status_code == 200
-    assert response.json()["modes"] == ["subscription", "api"]
+    assert response.json()["modes"] == ["subscription"]
     assert response.json()["capabilities"] == {"profileContext": True, "historyAppend": False}
     assert host.calls == []
 
@@ -276,49 +276,37 @@ def test_history_is_data_separate_from_native_instructions(client, host):
     assert session["initial_items"][1]["content"][0]["text"].endswith("delete everything")
 
 
-def test_api_uses_native_credentials_config_and_same_context(client, host, api, monkeypatch):
-    import sys
-    from types import ModuleType
+def test_api_mode_is_unavailable_without_host_context_or_network_access(
+    client, host, api, monkeypatch
+):
+    def forbidden(*args, **kwargs):
+        pytest.fail("Unavailable API mode must not access host services or the network")
 
-    native = ModuleType("tools.voice_live")
-    native._live_section = lambda: {"profile": "native"}
-    native._resolve_credentials = lambda cfg: ("synthetic-key", "https://api.openai.com/v1")
-    native.GPT_LIVE_VOICES = ("marin", "cedar")
-    native.build_session_config = lambda history: {
-        "model": "native-model",
-        "input": history,
-        "audio": {"output": {"voice": "marin"}},
-    }
-    tools = ModuleType("tools")
-    tools.voice_live = native
-    monkeypatch.setitem(sys.modules, "tools", tools)
-    monkeypatch.setitem(sys.modules, "tools.voice_live", native)
-    sent = []
+    monkeypatch.setattr(api, "host_services", forbidden)
+    monkeypatch.setattr(api, "profile_prompt", forbidden)
+    monkeypatch.setattr(httpx, "post", forbidden)
+    response = client.get(BASE + "/status?mode=api")
+    assert response.status_code == 200
+    status = response.json()
+    assert status["available"] is False
+    assert status["modes"] == ["subscription"]
+    assert status["voices"] == []
+    assert "151774" in status["reason"]
 
-    def post(url, **kwargs):
-        sent.append((url, kwargs))
-        return httpx.Response(200, json={"transport": {"type": "webrtc", "sdp": SDP}})
-
-    monkeypatch.setattr(httpx, "post", post)
     response = client.post(
         BASE + "/session",
         json={
             "offer": SDP,
             "mode": "api",
             "voice": "cedar",
-            "system_prompt": "Native API context",
+            "system_prompt": None,
             "cwd": "/work",
             "history": "Earlier conversation",
         },
     )
-    assert response.status_code == 200
-    assert response.json()["protocol"] == "openai-live"
-    assert sent[0][1]["json"]["session"]["model"] == "native-model"
-    assert sent[0][1]["json"]["session"]["audio"]["output"]["voice"] == "cedar"
-    assert "Native API context" in sent[0][1]["json"]["session"]["instructions"]
-    assert api.VOICE_HANDOFF in sent[0][1]["json"]["session"]["instructions"]
+    assert response.status_code == 503
+    assert response.json() == {"detail": status["reason"]}
     assert host.calls == []
-    assert "synthetic-key" not in response.text
 
 
 @pytest.mark.parametrize("profile", ["alice", "bob"])
